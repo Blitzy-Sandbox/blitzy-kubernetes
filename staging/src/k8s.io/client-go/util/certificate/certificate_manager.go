@@ -606,6 +606,16 @@ func (m *manager) rotateCerts(ctx context.Context) (bool, error) {
 	// Once we've successfully submitted a CSR for this template, record that we did so
 	m.setLastRequest(cancel, template)
 
+	// Check if template changed while we were setting up the request.
+	// If the template has changed, we shouldn't wait for this CSR to be signed
+	// since a new CSR will be needed anyway. This prevents a race condition
+	// where the template monitoring goroutine may have already read a stale
+	// cancel function before we set the new one above (see issue #77936).
+	if currentTemplate := m.getTemplate(); !reflect.DeepEqual(template, currentTemplate) {
+		logger.V(2).Info("Certificate template changed after CSR submission, restarting rotation")
+		return false, nil
+	}
+
 	// Wait for the certificate to be signed. This interface and internal timout
 	// is a remainder after the old design using raw watch wrapped with backoff.
 	crtPEM, err := csr.WaitForCertificate(ctx, clientSet, reqName, reqUID)
