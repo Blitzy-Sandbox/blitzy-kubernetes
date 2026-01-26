@@ -27,6 +27,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1427,4 +1428,52 @@ func certificateString(c *tls.Certificate) string {
 		return "certificate.Leaf == nil"
 	}
 	return c.Leaf.Subject.CommonName
+}
+
+func TestRotateCertTemplateChangeDuringWait(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	now := time.Now()
+
+	var templateVersion atomic.Int32
+	templateVersion.Store(1)
+
+	m := manager{
+		cert: &tls.Certificate{
+			Leaf: &x509.Certificate{
+				NotBefore: now.Add(-2 * time.Hour),
+				NotAfter:  now.Add(-1 * time.Hour),
+			},
+		},
+		getTemplate: func() *x509.CertificateRequest {
+			version := templateVersion.Load()
+			return &x509.CertificateRequest{
+				Subject: pkix.Name{
+					CommonName: fmt.Sprintf("system:node:fake-node-version-%d", version),
+				},
+			}
+		},
+		clientsetFn: func(_ *tls.Certificate) (clientset.Interface, error) {
+			templateVersion.Store(2) // Template changes during CSR processing
+			return newClientset(fakeClient{failureType: watchError}), nil
+		},
+		now: func() time.Time { return now },
+		ctx: ctx,
+	}
+
+	defer func(t time.Duration) { certificateWaitTimeout = t }(certificateWaitTimeout)
+	certificateWaitTimeout = 5 * time.Second
+
+	start := time.Now()
+	success, err := m.rotateCerts(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("rotateCerts took %v, expected quick return", elapsed)
+	}
+	if success {
+		t.Errorf("Got success, expected false due to template change")
+	}
+	if err != nil {
+		t.Errorf("Got error %v, wanted no error", err)
+	}
 }
