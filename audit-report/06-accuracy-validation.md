@@ -79,7 +79,7 @@ The following table lists all 45 systems from D0 with their classification, Mate
 | system_id | Classification | Material Components | Sample Size | Tier |
 |---|---|---|---|---|
 | SYS-IAM-ORC | Dynamic | 2 | 2 | Dynamic small (all available) |
-| SYS-IAM-APP | Dynamic | 19 | 10 | Dynamic small (≤ 20) |
+| SYS-IAM-APP | Dynamic | 18 | 9 | Dynamic small (≤ 20) |
 | SYS-IAM-CFG | Static | 1 | 1 | Static |
 | SYS-IAM-API | Static | 4 | 1 | Static |
 | SYS-IAM-DTA | Dynamic | 1 | 1 | Dynamic small (all available) |
@@ -174,8 +174,8 @@ The following table lists all 45 systems from D0 with their classification, Mate
 | Category | Systems | Total Samples |
 |---|---|---|
 | Static systems | 26 | 26 |
-| Dynamic systems | 19 | 55 |
-| **Grand Total** | **45** | **81** |
+| Dynamic systems | 19 | 54 |
+| **Grand Total** | **45** | **80** |
 
 ---
 
@@ -191,7 +191,7 @@ Each subsection below corresponds to one system from the D0 registry. For every 
 | system_id | component_path | audit_dimension | reported_state | actual_state | deviation_description | framework_control_misrepresented (Y/N) |
 |---|---|---|---|---|---|---|
 | SYS-IAM-ORC | `pkg/kubeapiserver/authenticator/config.go` | Integrity | Missing doc.go; 37-field Config struct; auth chain order documented | doc.go absent confirmed; 37 fields confirmed; chain order Request Header → x509 → StaticToken → ServiceAccount → Bootstrap → OIDC → Webhook matches code | Accurate | N |
-| SYS-IAM-ORC | `pkg/kubeapiserver/authenticator/config.go` | Quality | Cyclomatic complexity ~18 for `Config.New()`; 25 non-stdlib imports (Critical coupling) | 15+ conditional branches confirmed — complexity reasonable; actual non-stdlib imports = **28** (total 33, minus 5 stdlib: context, errors, fmt, sync/atomic, time). D3 reported 25. | Import count deviation: D3 reported 25, actual 28 non-stdlib. Coupling conclusion (Critical) unchanged. | N |
+| SYS-IAM-ORC | `pkg/kubeapiserver/authenticator/config.go` | Quality | Cyclomatic complexity ~18 for `Config.New()`; 25 non-stdlib imports (Critical coupling) | 15+ conditional branches confirmed — complexity reasonable; actual non-stdlib imports = **27** (total 32, minus 5 stdlib: context, errors, fmt, sync/atomic, time). D3 reported 25. | Import count deviation: D3 reported 25, actual 27 non-stdlib. Coupling conclusion (Critical) unchanged. | N |
 | SYS-IAM-ORC | `pkg/kubeapiserver/authenticator/config.go` | Dependency | CC-014 auth chain; depends on apiserver, client-go, klog, kubernetes/pkg/serviceaccount | Imports span k8s.io/apiserver, k8s.io/client-go, k8s.io/klog/v2, k8s.io/kubernetes/pkg/serviceaccount — accurate | Accurate | N |
 | SYS-IAM-ORC | `pkg/kubeapiserver/authenticator/config.go` | Documentation | doc.go absent; framework_requirement_addressed = N; comment lines assessed | doc.go absent confirmed; no NIST IA-2/IA-5 intent; 46 comment lines via grep | Accurate | N |
 | SYS-IAM-ORC | `pkg/kubeapiserver/authorizer/config.go` | Integrity | Missing doc.go; chain builds Node → RBAC → Webhook → ABAC | doc.go absent confirmed; `New()` builds chain in correct order | Accurate | N |
@@ -203,17 +203,17 @@ Each subsection below corresponds to one system from the D0 registry. For every 
 
 ---
 
-### 3.2 SYS-IAM-APP — Identity/Access Application Source (Dynamic, 10 of 19 sampled)
+### 3.2 SYS-IAM-APP — Identity/Access Application Source (Dynamic, 9 of 18 sampled)
 
-**Material components available:** 19 components across `pkg/auth/`, `plugin/pkg/auth/`, `pkg/serviceaccount/`
-**10 sampled** for breadth across sub-packages.
+**Material components available:** 18 components across `pkg/auth/`, `plugin/pkg/auth/`, `pkg/serviceaccount/`
+**9 sampled** for breadth across sub-packages.
 
 | system_id | component_path | audit_dimension | reported_state | actual_state | deviation_description | framework_control_misrepresented (Y/N) |
 |---|---|---|---|---|---|---|
 | SYS-IAM-APP | `pkg/auth/authorizer/abac/abac.go` | Integrity | Broken doc ref line 112; TODOs lines 58, 180, 236; no doc.go | Broken ref confirmed at line 112 (`docs/admin/authorization.md#abac-mode`); TODOs confirmed; doc.go absent. Source: `/pkg/auth/authorizer/abac/abac.go:112` | Accurate | N |
 | SYS-IAM-APP | `pkg/auth/authorizer/abac/abac.go` | Quality | Cyclomatic ~12 for `NewFromFile()`; nesting depth 6; 10 functions | 10 functions confirmed (`grep -c 'func '`); multi-level nesting in JSON decode + switch; assessment reasonable | Accurate | N |
 | SYS-IAM-APP | `pkg/auth/authorizer/abac/abac.go` | Dependency | Imports api/abac, apimachinery, apiserver, klog | Confirmed: k8s.io/api/abac/v1beta1, apimachinery, apiserver, klog/v2 | Accurate | N |
-| SYS-IAM-APP | `pkg/auth/authorizer/abac/abac.go` | Documentation | doc.go absent; comment density "73 lines across pkg/auth/" | doc.go absent confirmed; `grep -c '^[[:space:]]*//'` across pkg/auth/ = **42**, not 73 | D5 overreports comment density: 73 vs actual 42. Gap severity (Sparse) unchanged. | N |
+| SYS-IAM-APP | `pkg/auth/authorizer/abac/abac.go` | Documentation | doc.go absent; comment density "73 lines across pkg/auth/" | doc.go absent confirmed; `grep -rc '^[[:space:]]*//' pkg/auth/ --include='*.go'` = **73** (all Go files including test files). D5's count is reproducible. Excluding test files (`--exclude='*_test.go'`) yields 42. | Accurate — D5's 73 count matches all Go files in `pkg/auth/`. Gap severity (Sparse) unchanged. | N |
 | SYS-IAM-APP | `pkg/auth/nodeidentifier/default.go` | Integrity | Missing doc.go; checks `system:node:` prefix | doc.go absent confirmed; `NodeIdentity()` checks prefix at line 38 and `system:nodes` group. Source: `/pkg/auth/nodeidentifier/default.go:38` | Accurate | N |
 | SYS-IAM-APP | `pkg/auth/nodeidentifier/default.go` | Documentation | doc.go absent; framework_requirement_addressed = N | doc.go absent confirmed; no NIST IA reference | Accurate | N |
 | SYS-IAM-APP | `plugin/pkg/auth/authorizer/rbac/rbac.go` | Integrity | Package comment present; exports RBACAuthorizer, Authorize, RulesFor, New | All four exports confirmed in source | Accurate | N |
@@ -231,7 +231,7 @@ Each subsection below corresponds to one system from the D0 registry. For every 
 | SYS-IAM-APP | `plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go` | Integrity | Bootstrap RBAC policies; DRY violations | File exists; contains bootstrap ClusterRole definitions | Accurate | N |
 | SYS-IAM-APP | `plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go` | Quality | DRY violations across bootstrap policy files (137+151 repeats) | Pattern-heavy role definitions confirmed | Accurate | N |
 
-**SYS-IAM-APP Result: 18 Accurate, 2 Inaccurate (comment count, rbac import count) → 90.0 %**
+**SYS-IAM-APP Result: 19 Accurate, 1 Inaccurate (rbac import count) → 95.0 %**
 
 ---
 
@@ -429,10 +429,10 @@ Each subsection below corresponds to one system from the D0 registry. For every 
 
 | system_id | component_path | audit_dimension | reported_state | actual_state | deviation_description | framework_control_misrepresented (Y/N) |
 |---|---|---|---|---|---|---|
-| SYS-CCD-PIP | `hack/verify-*.sh` | Integrity | 51 verification scripts | Actual count = **49** (`ls hack/verify-*.sh \| wc -l`). | D1 overreports: 51 vs actual 49. Minor — 2-script difference. | N |
+| SYS-CCD-PIP | `hack/verify-*.sh` | Integrity | 49 verification scripts (`hack/verify-*.sh`) | Actual count = **49** (`ls hack/verify-*.sh \| wc -l`). D1 Section 2.1 reports "49 verification scripts" — matches actual. | Accurate | N |
 | SYS-CCD-PIP | `hack/verify-*.sh` | Documentation | Shell comments; no CM-3 reference | Functional comments confirmed; no explicit change control reference | Accurate | N |
 
-**SYS-CCD-PIP Result: 1 Accurate, 1 Inaccurate (verify script count) → 50.0 %**
+**SYS-CCD-PIP Result: 2 Accurate, 0 Inaccurate → 100.0 %**
 
 ---
 
@@ -774,7 +774,7 @@ The following source code paths were inspected during validation to verify D1–
 | EV-001 | `/pkg/auth/authorizer/abac/abac.go:112` | Broken doc reference to `docs/admin/authorization.md#abac-mode` | `grep` on line 112 confirmed stale URL |
 | EV-002 | `/pkg/auth/authorizer/abac/abac.go:58,180,236` | Three TODO comments present | `grep -n 'TODO' abac.go` confirmed lines 58, 180, 236 |
 | EV-003 | `/pkg/auth/nodeidentifier/default.go:38` | `system:node:` prefix check in `NodeIdentity()` | `read_file` confirmed identity check logic |
-| EV-004 | `/pkg/kubeapiserver/authenticator/config.go` | 33 total imports (5 stdlib, 28 non-stdlib) | `sed -n '/^import/,/^)/p'` + filtering |
+| EV-004 | `/pkg/kubeapiserver/authenticator/config.go` | 32 total imports (5 stdlib, 27 non-stdlib) | `sed -n '/^import/,/^)/p'` + filtering on quoted paths |
 | EV-005 | `/pkg/kubeapiserver/authorizer/config.go` | 25 total imports (5 stdlib, 20 non-stdlib) | `sed -n '/^import/,/^)/p'` + filtering |
 | EV-006 | `/plugin/pkg/auth/authorizer/rbac/rbac.go` | 12 total imports (3 stdlib, 9 non-stdlib) | Explicit import block review |
 | EV-007 | `/plugin/pkg/admission/noderestriction/admission.go` | 35 total imports (6 stdlib, 29 non-stdlib) | `sed -n '/^import/,/^)/p'` — full listing |
@@ -783,8 +783,8 @@ The following source code paths were inspected during validation to verify D1–
 | EV-010 | `/go.mod:1-3` | Module `k8s.io/kubernetes`, Go 1.25.0, godebug default=go1.25 | `head -5 go.mod` confirmed |
 | EV-011 | `/CONTRIBUTING.md` | 9 lines total; redirect to external guide | `wc -l CONTRIBUTING.md` = 9 |
 | EV-012 | `/.github/SECURITY.md` | 14 lines total; redirect to kubernetes.io | `wc -l .github/SECURITY.md` = 14 |
-| EV-013 | `/hack/verify-*.sh` | **49** verification scripts (not 51 as D1 reported) | `ls hack/verify-*.sh \| wc -l` = 49 |
-| EV-014 | `/pkg/auth/` (all .go files) | **42** comment lines (not 73 as D5 reported) | `grep -rc '^[[:space:]]*//' pkg/auth/` excluding test files |
+| EV-013 | `/hack/verify-*.sh` | **49** verification scripts — matches D1's reported count of 49 | `ls hack/verify-*.sh \| wc -l` = 49 |
+| EV-014 | `/pkg/auth/` (all .go files) | **73** comment lines (all Go files including test files); **42** excluding test files (`--exclude='*_test.go'`). D5's reported 73 matches the all-files count. | `grep -rc '^[[:space:]]*//' pkg/auth/ --include='*.go'` = 73; with `--exclude='*_test.go'` = 42 |
 | EV-015 | `/pkg/security/` (all .go files) | 24 comment lines (D5 reported 25 — close match) | `grep -rc '^[[:space:]]*//' pkg/security/` excluding test files |
 | EV-016 | `/api/openapi-spec/swagger.json` | File present — generated OpenAPI spec | `test -f` confirmed |
 | EV-017 | `/pkg/kubeapiserver/admission/config.go` | 29 lines; empty `Config struct{}`; 2 comment lines | `wc -l` and `grep -c` confirmed |
@@ -801,7 +801,7 @@ The following source code paths were inspected during validation to verify D1–
 | system_id | total_sampled | accurate_count | inaccurate_count | accuracy_% | per_system_result |
 |---|---|---|---|---|---|
 | SYS-IAM-ORC | 8 | 6 | 2 | 75.0 | FAIL |
-| SYS-IAM-APP | 20 | 18 | 2 | 90.0 | PASS |
+| SYS-IAM-APP | 20 | 19 | 1 | 95.0 | PASS |
 | SYS-IAM-CFG | 2 | 2 | 0 | 100.0 | PASS |
 | SYS-IAM-API | 2 | 2 | 0 | 100.0 | PASS |
 | SYS-IAM-DTA | 2 | 2 | 0 | 100.0 | PASS |
@@ -819,7 +819,7 @@ The following source code paths were inspected during validation to verify D1–
 | SYS-IMG-PIP | 2 | 2 | 0 | 100.0 | PASS |
 | SYS-IMG-DEP | 1 | 1 | 0 | 100.0 | PASS |
 | SYS-CCD-CFG | 2 | 2 | 0 | 100.0 | PASS |
-| SYS-CCD-PIP | 2 | 1 | 1 | 50.0 | FAIL |
+| SYS-CCD-PIP | 2 | 2 | 0 | 100.0 | PASS |
 | SYS-CCD-DEP | 2 | 2 | 0 | 100.0 | PASS |
 | SYS-RUN-IAC | 2 | 2 | 0 | 100.0 | PASS |
 | SYS-RUN-ORC | 10 | 10 | 0 | 100.0 | PASS |
@@ -845,29 +845,28 @@ The following source code paths were inspected during validation to verify D1–
 | SYS-EXT-CFG | 1 | 1 | 0 | 100.0 | PASS |
 | SYS-EXT-DEP | 1 | 1 | 0 | 100.0 | PASS |
 | SYS-EXT-API | 2 | 2 | 0 | 100.0 | PASS |
-| **TOTAL** | **158** | **152** | **6** | **96.2** | **PASS** |
+| **TOTAL** | **158** | **154** | **4** | **97.5** | **PASS** |
 
 ### 5.2 Aggregate Determination
 
 | Metric | Value |
 |---|---|
 | Total dimension-level validations performed | 158 |
-| Accurate validations | 152 |
-| Inaccurate validations | 6 |
-| **Aggregate accuracy** | **96.2 %** |
+| Accurate validations | 154 |
+| Inaccurate validations | 4 |
+| **Aggregate accuracy** | **97.5 %** |
 | Threshold | ≥ 87 % |
 | **Determination** | **PASS ✓** |
 
-The audit report meets the ≥87 % accuracy threshold with a **9.2 percentage-point margin**.
+The audit report meets the ≥87 % accuracy threshold with a **10.5 percentage-point margin**.
 
 ### 5.3 Systems Below 87 % Threshold (Individual)
 
-Two systems individually fall below the 87 % threshold. These do not affect the aggregate PASS determination (aggregate accuracy is computed across all systems combined) but are noted for transparency:
+One system individually falls below the 87 % threshold. This does not affect the aggregate PASS determination (aggregate accuracy is computed across all systems combined) but is noted for transparency:
 
 | system_id | accuracy_% | Root Cause |
 |---|---|---|
-| SYS-IAM-ORC | 75.0 % | D3 import count discrepancies in authenticator/config.go (25 vs 28) and authorizer/config.go (17 vs 20) |
-| SYS-CCD-PIP | 50.0 % | D1 verification script count (51 vs 49) |
+| SYS-IAM-ORC | 75.0 % | D3 import count discrepancies in authenticator/config.go (25 vs 27) and authorizer/config.go (17 vs 20) |
 
 ---
 
@@ -875,26 +874,26 @@ Two systems individually fall below the 87 % threshold. These do not affect the 
 
 | audit_dimension | total_validations | accurate | inaccurate | accuracy_% | contributing_systems (inaccurate) |
 |---|---|---|---|---|---|
-| **Integrity** | 68 | 67 | 1 | 98.5 | SYS-CCD-PIP (verify script count 51 → 49) |
-| **Quality** | 7 | 3 | 4 | 42.9 | SYS-IAM-ORC (authenticator 25 → 28, authorizer 17 → 20), SYS-IAM-APP (rbac.go 7 → 9), SYS-CMP-APP (noderestriction methodology) |
+| **Integrity** | 68 | 68 | 0 | 100.0 | — |
+| **Quality** | 7 | 3 | 4 | 42.9 | SYS-IAM-ORC (authenticator 25 → 27, authorizer 17 → 20), SYS-IAM-APP (rbac.go 7 → 9), SYS-CMP-APP (noderestriction methodology) |
 | **Dependency** | 9 | 9 | 0 | 100.0 | — |
-| **Documentation** | 74 | 73 | 1 | 98.6 | SYS-IAM-APP (pkg/auth/ comment count 73 → 42) |
-| **TOTAL** | **158** | **152** | **6** | **96.2** | — |
+| **Documentation** | 74 | 74 | 0 | 100.0 | — |
+| **TOTAL** | **158** | **154** | **4** | **97.5** | — |
 
 ### 6.1 Dimension Analysis
 
-**Integrity (98.5 %)** — The structural integrity findings from D1 are highly accurate. The single inaccuracy is the verification script count (51 reported vs 49 actual), a minor discrepancy that does not change any severity classification. All doc.go presence/absence findings, broken cross-references, and structural assessments are verified.
+**Integrity (100.0 %)** — The structural integrity findings from D1 are fully accurate. All doc.go presence/absence findings, broken cross-references, structural assessments, and verification script counts are verified. D1 correctly reports 49 verification scripts in `hack/`, matching the actual codebase count.
 
 **Quality (42.9 %)** — The code quality dimension exhibits the lowest accuracy due to **systematic import count discrepancies** in D3. All four inaccuracies are import line counts where D3 underreports or applies inconsistent counting methodology (some counts appear to include stdlib while claiming to exclude it). Critically, the **qualitative conclusions remain valid** in all cases — coupling assessments (above/at/below threshold) are directionally correct even where the specific number is wrong. The discrepancies are:
 
-- `authenticator/config.go`: D3 reported 25, actual 28 non-stdlib (5 stdlib excluded: context, errors, fmt, sync/atomic, time)
+- `authenticator/config.go`: D3 reported 25, actual 27 non-stdlib (5 stdlib excluded: context, errors, fmt, sync/atomic, time)
 - `authorizer/config.go`: D3 reported 17, actual 20 non-stdlib (5 stdlib excluded: context, fmt, os, strings, time)
 - `rbac/rbac.go`: D3 reported 7, actual 9 non-stdlib (3 stdlib excluded: bytes, context, fmt)
 - `noderestriction/admission.go`: D3 reported 35 "excluding stdlib," actual excluding-stdlib is 29 (total-with-stdlib is 35 — apparent methodology misapplication)
 
 **Dependency (100.0 %)** — All dependency mappings from D4 accurately reflect the actual codebase import relationships. Cross-cutting concern assignments, blast radius classifications, and inter-system dependency paths are all verified.
 
-**Documentation (98.6 %)** — Documentation coverage findings from D5 are highly accurate. The single inaccuracy is the comment line count for `pkg/auth/` (D5 reported 73, actual `grep` count yields 42). The discrepancy likely arises from D5 counting comment tokens rather than lines starting with `//`, or including test files. All doc.go presence/absence assessments and framework requirement gap classifications are verified.
+**Documentation (100.0 %)** — Documentation coverage findings from D5 are fully accurate. All doc.go presence/absence assessments, framework requirement gap classifications, and comment density figures are verified. D5's reported 73 comment lines for `pkg/auth/` is reproducible using `grep -rc '^[[:space:]]*//' pkg/auth/ --include='*.go'` (all Go files including test files). The count of 42 obtained by excluding test files (`--exclude='*_test.go'`) reflects a stricter methodology not specified by D5; D5's figure is accepted as accurate under its implied methodology.
 
 ---
 
@@ -910,8 +909,8 @@ For every inaccurate finding, the complete deviation record is provided below.
 | component_path | `pkg/kubeapiserver/authenticator/config.go` |
 | audit_dimension | Quality |
 | reported_state | D3 reports 25 non-stdlib imports with Critical coupling assessment |
-| actual_state | 28 non-stdlib imports (33 total minus 5 stdlib: context, errors, fmt, sync/atomic, time). Source: EV-004 |
-| deviation_description | D3 underreports non-stdlib imports by 3. The difference does not change the coupling severity (28 > 7 threshold, Critical confirmed). Likely caused by import alias lines being excluded from D3's count or a parsing artifact. |
+| actual_state | 27 non-stdlib imports (32 total minus 5 stdlib: context, errors, fmt, sync/atomic, time). Source: EV-004 |
+| deviation_description | D3 underreports non-stdlib imports by 2. The difference does not change the coupling severity (27 > 7 threshold, Critical confirmed). Likely caused by import alias lines being excluded from D3's count or a parsing artifact. |
 | framework_control_misrepresented | N |
 | severity | Minor |
 
@@ -954,31 +953,13 @@ For every inaccurate finding, the complete deviation record is provided below.
 | framework_control_misrepresented | N |
 | severity | Minor |
 
-### 7.5 Inaccuracy INX-005 — Verification Script Count
+### 7.5 Methodology Notes (Non-Inaccuracies)
 
-| Field | Value |
-|---|---|
-| system_id | SYS-CCD-PIP |
-| component_path | `hack/verify-*.sh` |
-| audit_dimension | Integrity |
-| reported_state | D1 reports 51 verification scripts in `hack/` |
-| actual_state | **49** verification scripts (`ls hack/verify-*.sh \| wc -l` = 49). Source: EV-013 |
-| deviation_description | D1 overreports by 2 scripts. The difference may result from counting scripts that were renamed, removed, or are located outside the `hack/verify-*.sh` glob pattern. This does not affect any severity classification or CIS Benchmark mapping. |
-| framework_control_misrepresented | N |
-| severity | Minor |
+The following items were evaluated during validation and determined **not to be inaccuracies** after careful review:
 
-### 7.6 Inaccuracy INX-006 — pkg/auth/ Comment Line Count
+**Verification Script Count (SYS-CCD-PIP, Integrity):** D1 Section 2.1 reports "49 verification scripts (`hack/verify-*.sh`)" — this matches the actual codebase count of 49 (`ls hack/verify-*.sh | wc -l` = 49). Source: EV-013. No discrepancy exists.
 
-| Field | Value |
-|---|---|
-| system_id | SYS-IAM-APP |
-| component_path | `pkg/auth/` (all .go files) |
-| audit_dimension | Documentation |
-| reported_state | D5 reports 73 comment lines across `pkg/auth/` |
-| actual_state | **42** comment lines via `grep -rc '^[[:space:]]*//' pkg/auth/ --include='*.go' --exclude='*_test.go'`. Source: EV-014 |
-| deviation_description | D5 overreports comment density by 31 lines (73 vs 42). The discrepancy likely stems from D5 using a broader counting method (e.g., including multi-line block comments, license headers, or test files). The qualitative gap severity classification (Sparse) remains unchanged — both 73 and 42 are sparse for Material components governing NIST AC and IA controls. |
-| framework_control_misrepresented | N |
-| severity | Minor |
+**pkg/auth/ Comment Line Count (SYS-IAM-APP, Documentation):** D5 reports 73 comment lines across `pkg/auth/`. Using `grep -rc '^[[:space:]]*//' pkg/auth/ --include='*.go'` (all Go files including test files), the count is **73** — matching D5's figure exactly. Excluding test files (`--exclude='*_test.go'`) yields 42. Since D5 does not specify test file exclusion, D5's methodology is valid and its reported count is accurate. Source: EV-014.
 
 ---
 
@@ -989,22 +970,22 @@ For every inaccurate finding, the complete deviation record is provided below.
 | Parameter | Value |
 |---|---|
 | **Threshold** | ≥ 87 % |
-| **Aggregate accuracy** | **96.2 %** |
+| **Aggregate accuracy** | **97.5 %** |
 | **Determination** | **PASS ✓** |
-| **Margin** | +9.2 percentage points above threshold |
+| **Margin** | +10.5 percentage points above threshold |
 | Systems validated | 45 of 45 (100 %) |
-| Total component samples | 81 |
+| Total component samples | 80 |
 | Total dimension-level validations | 158 |
-| Inaccurate validations | 6 |
+| Inaccurate validations | 4 |
 
 ### 8.2 Dimension Confidence
 
 | Dimension | Accuracy | Confidence Level |
 |---|---|---|
-| Integrity (D1) | 98.5 % | **High** — structural findings are reliably accurate |
+| Integrity (D1) | 100.0 % | **High** — structural findings are fully accurate |
 | Quality (D3) | 42.9 % | **Low** — import count methodology is systematically inconsistent |
 | Dependency (D4) | 100.0 % | **High** — dependency mappings are fully accurate |
-| Documentation (D5) | 98.6 % | **High** — gap matrix findings are reliably accurate |
+| Documentation (D5) | 100.0 % | **High** — gap matrix findings are fully accurate |
 
 ### 8.3 Root Cause Analysis of Quality Dimension Inaccuracy
 
@@ -1012,7 +993,7 @@ The Quality dimension (D3) is the sole dimension below the 87 % threshold at the
 
 D3 claims to count "direct import statements (excluding standard library)" but in practice:
 1. For `noderestriction/admission.go`, the reported count (35) equals total-with-stdlib rather than non-stdlib (29).
-2. For `authenticator/config.go`, `authorizer/config.go`, and `rbac/rbac.go`, the reported counts undercount non-stdlib imports by 2–3 lines, likely due to aliased import lines (e.g., `rbacv1 "k8s.io/api/rbac/v1"`) being partially excluded from the count.
+2. For `authenticator/config.go`, `authorizer/config.go`, and `rbac/rbac.go`, the reported counts undercount non-stdlib imports by 2–3 lines, likely due to aliased import lines (e.g., `rbacv1 "k8s.io/api/rbac/v1"`) being partially excluded from the count or blank separator lines within import blocks affecting line-based counting.
 
 **Critically**, all four inaccuracies affect only the **specific numeric value** of the coupling metric. The **qualitative assessment** (whether coupling exceeds the >7 threshold) remains directionally correct in all cases. No framework control is misrepresented.
 
@@ -1020,15 +1001,15 @@ D3 claims to count "direct import statements (excluding standard library)" but i
 
 1. **Standardise import counting:** D3 should adopt a single, verifiable methodology for counting non-stdlib imports — either total import paths excluding `"context"`, `"fmt"`, etc., or unique top-level modules. The chosen method should be documented in the methodology section.
 2. **Automate metric extraction:** Import counts, function counts, and comment line counts should be extracted via deterministic tooling (e.g., `go list -json`, `gocognit`, `gocyclo`) rather than manual analysis to eliminate counting methodology variance.
-3. **Reconcile comment counting:** D5 should document whether comment line counts include license headers, block comments (`/* */`), and test files. A standardised `grep` pattern or AST-based comment extraction would resolve the pkg/auth/ discrepancy.
-4. **Verify script inventories:** D1 script counts should be verified via exact glob patterns documented alongside the count.
+3. **Document comment counting methodology:** D5 should explicitly document whether comment line counts include license headers, block comments (`/* */`), and test files. The current methodology (all Go files) is valid but should be stated for reproducibility.
+4. **Standardise glob patterns for inventories:** Script and file counts should document the exact glob pattern used (e.g., `hack/verify-*.sh`) alongside the count for reproducibility.
 
 ### 8.5 Audit Reliability Conclusion
 
-The Kubernetes codebase audit report (D0–D5) is **certified as reliable** with 96.2 % aggregate accuracy, exceeding the 87 % threshold by 9.2 percentage points. Structural integrity findings (D1), dependency mappings (D4), and documentation gap assessments (D5) are all individually above 98 % accuracy. The Quality dimension (D3) exhibits methodological inconsistency in import counting but does not produce materially incorrect coupling or complexity conclusions. No framework control is misrepresented in any sampled finding.
+The Kubernetes codebase audit report (D0–D5) is **certified as reliable** with 97.5 % aggregate accuracy, exceeding the 87 % threshold by 10.5 percentage points. Structural integrity findings (D1), dependency mappings (D4), and documentation gap assessments (D5) are all individually at 100.0 % accuracy. The Quality dimension (D3) exhibits methodological inconsistency in import counting but does not produce materially incorrect coupling or complexity conclusions. No framework control is misrepresented in any sampled finding.
 
 ---
 
 *Document generated as part of the Kubernetes Codebase Audit — Directive 6 of 7.*
 *Framework references: NIST SP 800-53 Rev 5, NIST SP 800-190, NIST CSF, CIS Kubernetes Benchmark v1.12.0, CIS Controls v8 (IG2/IG3).*
-*Sampling methodology: System-type-aware (Static=1, Dynamic=10–25), 81 total samples across 45 systems, 158 dimension-level validations.*
+*Sampling methodology: System-type-aware (Static=1, Dynamic=10–25), 80 total samples across 45 systems, 158 dimension-level validations.*
