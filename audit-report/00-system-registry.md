@@ -635,7 +635,7 @@ graph TD
     ROOT --> DYNAMIC["Dynamic: 19 Systems<br/>(42.2%)"]
 
     STATIC --> S_CFG["Configuration/Environment<br/>10 systems"]
-    STATIC --> S_API["API/Interface<br/>10 systems"]
+    STATIC --> S_API["API/Interface<br/>8 systems"]
     STATIC --> S_DEP["Dependency/Package<br/>4 systems"]
     STATIC --> S_IAC["IaC Layer<br/>2 systems"]
     STATIC --> S_PIP["Pipeline Definition<br/>2 systems"]

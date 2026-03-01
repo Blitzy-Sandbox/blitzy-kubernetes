@@ -375,12 +375,13 @@ Cohesion is assessed by evaluating whether internal methods within a module shar
 | SYS-IAM-ORC | 12 | 2 | 7 | 3 | `Config.New()`: CC~18, 143 lines | 25 imports (authenticator), 17 imports (authorizer) |
 | SYS-IAM-APP | 18 | 2 | 6 | 10 | `ClusterRoles()`: CC~15, 386 lines; `NewFromFile()`: CC~12 | 7 imports (rbac.go — at threshold) |
 | SYS-IAM-CFG | 2 | 0 | 0 | 2 | N/A (config flag files) | N/A |
+| SYS-IAM-API | 2 | 0 | 1 | 1 | Validation functions: CC~8–12 | High (API machinery imports) |
 | SYS-SEC-APP | 3 | 0 | 2 | 1 | Low (functions <50 lines) | Low (<7) |
 | SYS-CMP-APP | 20 | 3 | 14 | 3 | `PodValidateLimitFunc()`: CC~14, 72 lines; `Admit()` (noderestriction): CC~14, 66 lines | 35 imports (noderestriction), 24 imports (limitranger) |
 | SYS-CMP-ORC | 1 | 0 | 0 | 1 | Low (admission/config.go: 29 lines) | Low (<7) |
 | SYS-RUN-ORC | 4 | 0 | 0 | 4 | Low (entry points: 33-39 lines) | Low (<7) |
 | Cross-cutting | 1 | 0 | 0 | 1 | N/A | N/A |
-| **Totals** | **61** | **7** | **29** | **25** | — | — |
+| **Totals** | **63** | **7** | **30** | **26** | — | — |
 
 ### 5.2 Systems with Most Quality Concerns
 
@@ -531,6 +532,44 @@ The following lists confirm that **only** Material components from D2 were asses
 - `cmd/kube-controller-manager/controller-manager.go` (38 lines)
 - `cmd/kube-scheduler/scheduler.go` (33 lines)
 - `cmd/kubelet/kubelet.go` (39 lines)
+
+### 7.8 SYS-IAM-API Material Components Assessed
+
+- `pkg/apis/rbac/types.go` (5,653 LOC total across package)
+- `pkg/apis/rbac/validation/validation.go`
+- `pkg/apis/rbac/helpers.go`
+- `pkg/apis/authentication/types.go`
+- `pkg/apis/authorization/types.go`
+
+> **Assessment Note:** The `pkg/apis/rbac/` package (SYS-IAM-API) contains primarily declarative API type definitions (Role, ClusterRole, RoleBinding, ClusterRoleBinding) with associated validation logic. Code quality characteristics of API type packages differ from implementation packages: cyclomatic complexity is concentrated in validation functions (`validation.go`), coupling is inherently high due to import of API machinery types (`k8s.io/apimachinery`), and code smells are predominantly limited to long parameter lists in validation functions and magic numbers in field length limits. The validation functions in `pkg/apis/rbac/validation/validation.go` exhibit estimated cyclomatic complexity of 8–12 per validation function due to multi-field checking, which is within acceptable range for validation logic. No security-relevant quality issues (hardcoded credentials, sensitive data logging, exposed internal state) were identified in RBAC API types.
+
+---
+
+## 8. Material Systems Not Assessed — Scope Acknowledgment
+
+The following Material systems from D2 were not included in the primary code quality assessment above. This section documents the exclusion rationale for each. These systems are classified as Material per D2 and are eligible for code quality audit, but were deprioritized based on a risk-weighted assessment that concentrated D3 resources on the highest-security-impact code paths (authentication, authorization, admission control, security profiles, and runtime orchestration).
+
+| system_id | Vertical | Component Paths | Exclusion Rationale |
+|---|---|---|---|
+| SYS-NET-APP | Network Policy | `pkg/proxy/`, `plugin/pkg/admission/network/` | Network proxy implementation is primarily a data-plane forwarding layer with lower code quality risk to security controls than authentication/authorization/admission paths. The `network/` admission plugin is a thin delegator. |
+| SYS-NET-API | Network Policy | `pkg/apis/networking/` | API type definitions are predominantly declarative with auto-generated deepcopy and conversion functions. Code quality risk is limited to validation logic, which follows standard Kubernetes API validation patterns. |
+| SYS-NET-CFG | Network Policy | Network-related configuration in `cmd/kube-proxy/app/options/` | Configuration flag definitions follow standard Kubernetes options patterns with low code quality risk. |
+| SYS-SEC-ORC | Secret Management | `pkg/controller/` (secret/configmap controllers) | Controller reconciliation loops follow the standard Kubernetes controller pattern. Code quality assessment of the controller framework is captured under cross-cutting dependency analysis (D4, CC-007). |
+| SYS-SEC-DTA | Secret Management | `pkg/registry/core/secret/`, `pkg/registry/core/configmap/` | Registry storage implementations follow standard Kubernetes storage patterns (REST strategy + etcd backend). Code quality risk is low for declarative storage layer code. |
+| SYS-OBS-APP | Observability | `pkg/routes/`, metrics instrumentation | Metrics registration and health probe implementations are observability infrastructure with no direct security control enforcement logic. |
+| SYS-OBS-CFG | Observability | Audit/metrics configuration paths | Configuration-only components following standard flag patterns. |
+| SYS-DAT-APP | Data Persistence | `pkg/volume/` volume plugins | Volume plugin implementations are storage integration adapters. While Material for SC-28, they follow standard plugin interface patterns with lower code quality risk than authentication/authorization paths. |
+| SYS-DAT-ORC | Data Persistence | Storage controller reconciliation | Controller loops following standard patterns; covered by cross-cutting framework analysis. |
+| SYS-EXT-APP | External Integrations | `pkg/credentialprovider/`, webhook clients | External integration adapters with lower code quality risk; credential provider is a plugin interface. |
+| SYS-IMG-IAC | Image Supply Chain | `build/pause/Dockerfile`, `build/server-image/Dockerfile` | Dockerfiles are declarative IaC artifacts. Code quality thresholds (cyclomatic complexity, coupling, nesting) do not apply to Dockerfile syntax. |
+| SYS-IMG-CFG | Image Supply Chain | `build/dependencies.yaml` | YAML configuration file; code quality thresholds not applicable. |
+| SYS-IMG-PIP | Image Supply Chain | Build/release scripts | Shell scripts assessed for structural integrity in D1; Go code quality thresholds not directly applicable to shell scripts. |
+| SYS-IMG-DEP | Image Supply Chain | Dependency version management | Dependency governance assessed in D4; no Go source code to apply code quality thresholds to. |
+| SYS-CCD-PIP | CI/CD | `hack/verify-*.sh` (49 scripts) | Shell scripts assessed for structural integrity in D1; Go code quality thresholds not directly applicable. |
+| SYS-CCD-CFG | CI/CD | `.github/`, `CONTRIBUTING.md` | Configuration/documentation files; code quality thresholds not applicable. |
+| SYS-CCD-DEP | CI/CD | `go.mod`, `go.sum`, vendor governance | Dependency manifests assessed in D4; no Go source code to apply code quality thresholds to. |
+
+> **Risk Acknowledgment:** The 8 assessed systems (SYS-IAM-ORC, SYS-IAM-APP, SYS-IAM-CFG, SYS-IAM-API, SYS-SEC-APP, SYS-CMP-APP, SYS-CMP-ORC, SYS-RUN-ORC) represent the highest-security-impact Material code paths governing authentication, authorization, admission control, RBAC API types, security profiles, and runtime orchestration. The excluded systems are either (a) declarative/configuration artifacts where Go code quality thresholds do not apply, (b) standard-pattern implementations with lower security-impact code quality risk, or (c) assessed under other audit dimensions (D1 structural integrity, D4 dependency governance). The D6 Accuracy Validation (Quality dimension) samples from assessed systems to validate this prioritization.
 
 ---
 

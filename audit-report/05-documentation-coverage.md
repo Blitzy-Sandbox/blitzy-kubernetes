@@ -515,8 +515,8 @@ This section evaluates documentation coverage for all 27 cross-cutting concerns 
 | Assessment Level | Count | Percentage |
 |---|---|---|
 | **All three documented** (dependency, blast radius, owner) | 0 | 0% |
-| **Partial documentation** (1–2 of three) | 6 | 22.2% |
-| **No documentation** (0 of three) | 21 | 77.8% |
+| **Partial documentation** (1–2 of three) | 8 | 29.6% |
+| **No documentation** (0 of three) | 19 | 70.4% |
 | **Total concerns assessed** | **27** | **100%** |
 
 **Finding:** Zero of 27 cross-cutting concerns have complete documentation (dependency relationships AND blast radius AND governance owner). This is a **systemic documentation gap** that directly impacts the ability to assess change impact and assign governance responsibility. All High blast radius concerns (CC-001 through CC-017, CC-023, CC-024) lack complete documentation, representing the most critical documentation deficiency in the repository.
@@ -546,9 +546,9 @@ This section evaluates documentation coverage for all 27 cross-cutting concerns 
 | NIST SP 800-190 — explicit container security reference | 0 of 128 | **0%** |
 | CIS Kubernetes Benchmark — explicit check reference | 0 of 128 | **0%** |
 | CIS Controls v8 — explicit control reference | 0 of 128 | **0%** |
-| Any implicit framework alignment (Partial) | 24 of 128 | **18.8%** |
+| Any implicit framework alignment (Partial) | 22 of 128 | **17.2%** |
 
-**Finding:** **Zero Material components** contain explicit documentation referencing any compliance framework control. The 18.8% rated as "Partial" achieve this rating solely through implicit alignment — API type names that inherently convey access control or security purpose (e.g., `Role`, `ClusterRole`, `NetworkPolicy`, `Secret`) or flag descriptions that describe security-relevant configuration parameters without citing the control objective they satisfy.
+**Finding:** **Zero Material components** contain explicit documentation referencing any compliance framework control. The 17.2% rated as "Partial" achieve this rating solely through implicit alignment — API type names that inherently convey access control or security purpose (e.g., `Role`, `ClusterRole`, `NetworkPolicy`, `Secret`) or flag descriptions that describe security-relevant configuration parameters without citing the control objective they satisfy.
 
 ---
 
@@ -589,14 +589,14 @@ graph TD
 ```mermaid
 graph LR
     subgraph "Documentation Presence (128 Material Components)"
-        Present["Documentation Present<br/>121 components (94.5%)"]
-        Absent["Documentation Absent<br/>7 components (5.5%)"]
+        Present["Documentation Present<br/>122 components (95.3%)"]
+        Absent["Documentation Absent<br/>6 components (4.7%)"]
     end
 
     subgraph "Framework Alignment (128 Material Components)"
         Addressed["Framework Addressed (Y)<br/>0 components (0%)"]
-        Partial["Framework Partial<br/>24 components (18.8%)"]
-        NotAddressed["Framework Not Addressed (N)<br/>104 components (81.2%)"]
+        Partial["Framework Partial<br/>22 components (17.2%)"]
+        NotAddressed["Framework Not Addressed (N)<br/>106 components (82.8%)"]
     end
 
     Present -->|"but..."| NotAddressed
@@ -610,7 +610,7 @@ graph LR
     style NotAddressed fill:#ff4444,color:#fff
 ```
 
-**Key Insight:** While 94.5% of Material components have some form of documentation (inline comments, doc.go, or generated docs), **0% explicitly address framework control requirements**. The documentation that exists primarily describes WHAT the code does, not WHY it exists from a compliance perspective. This creates a paradox where documentation is technically present but functionally absent for compliance audit purposes.
+**Key Insight:** While 95.3% of Material components have some form of documentation (inline comments, doc.go, or generated docs), **0% explicitly address framework control requirements**. The documentation that exists primarily describes WHAT the code does, not WHY it exists from a compliance perspective. This creates a paradox where documentation is technically present but functionally absent for compliance audit purposes.
 
 ---
 
