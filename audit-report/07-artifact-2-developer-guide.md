@@ -29,7 +29,7 @@ The Kubernetes repository provides the following existing contribution governanc
 - **Security Disclosure:** `.github/SECURITY.md` — directs vulnerability reports to the Kubernetes Security and Disclosure process at `kubernetes.io/docs/reference/issues-security/security/`.  
   `Source: .github/SECURITY.md`
 - **Prow CI/CD:** External, Prow-based CI system (not configured within this repository) executing quality gates: verification (`make verify`), unit tests, integration tests, golangci-lint, CLA verification, and conformance tests.
-- **Verification Scripts:** 49 `hack/verify-*.sh` scripts executing automated checks for boilerplate, code generation, imports, OpenAPI spec, golangci-lint, external dependency versions, vendor cycles, feature gates, and more. Master entry point: `hack/verify-all.sh` (delegates to `make verify`).  
+- **Verification Scripts:** 49 `hack/verify-*.sh` scripts (counted via direct glob `ls hack/verify-*.sh | wc -l`; 2 additional verification scripts in subdirectories `hack/lib/verify-generated.sh` and `hack/jenkins/verify-dockerized.sh` are not included in this count) executing automated checks for boilerplate, code generation, imports, OpenAPI spec, golangci-lint, external dependency versions, vendor cycles, feature gates, and more. Master entry point: `hack/verify-all.sh` (delegates to `make verify`).  
   `Source: hack/verify-all.sh`
 
 ### 1.3 Gate Pipeline
@@ -287,7 +287,7 @@ A contribution **FAILS** Gate 5 if ANY of the following are true:
 | Framework | Control | Description |
 |---|---|---|
 | NIST SP 800-190 | Image Risks / Registry Risks | Container image integrity verification, prevention of embedded secrets, base image provenance |
-| CIS Kubernetes Benchmark v1.12.0 | Section 4.2 | Worker Node Configuration Files — includes container image security policies |
+| CIS Kubernetes Benchmark v1.12.0 | Section 4.2 | Kubelet — includes container image security policies |
 
 ### 7.2 PASS Criteria
 
