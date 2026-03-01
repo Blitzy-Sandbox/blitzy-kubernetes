@@ -142,65 +142,49 @@ Integrity findings are mapped to CIS Kubernetes Benchmark v1.12.0 sections where
 
 **Scope:** kube-proxy configuration flags, proxy mode selection
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-NET-CFG | N/A | N/A | N/A | No structural integrity issues identified in network configuration scope | N/A |
+*No structural integrity issues identified in network configuration scope*
 
 ### 2.9 SYS-NET-API — Network Policy × API/Interface
 
 **Scope:** NetworkPolicy API types (`pkg/apis/networking/`)
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-NET-API | N/A | N/A | N/A | No structural integrity issues identified; `pkg/apis/networking/` has `doc.go` present | N/A |
+*No structural integrity issues identified; `pkg/apis/networking/` has `doc.go` present*
 
 ### 2.10 SYS-SEC-ORC — Secret Management × Orchestration Layer
 
 **Scope:** Secret/ConfigMap controller logic, ServiceAccount token controller
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-SEC-ORC | N/A | N/A | N/A | No structural integrity issues identified within the secret management orchestration scope | N/A |
+*No structural integrity issues identified within the secret management orchestration scope*
 
 ### 2.11 SYS-SEC-APP — Secret Management × Application Source
 
 **Scope:** Credential provider (`pkg/credentialprovider/`), ServiceAccount secret injection
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-SEC-APP | N/A | N/A | N/A | No structural integrity issues identified in secret management application source | N/A |
+*No structural integrity issues identified in secret management application source*
 
 ### 2.12 SYS-SEC-CFG — Secret Management × Configuration/Environment
 
 **Scope:** Encryption configuration, credential provider configuration files
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-SEC-CFG | N/A | N/A | N/A | No structural integrity issues identified in secret management configuration scope | N/A |
+*No structural integrity issues identified in secret management configuration scope*
 
 ### 2.13 SYS-SEC-API — Secret Management × API/Interface
 
 **Scope:** Secret and ConfigMap API types in `pkg/apis/core/`
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-SEC-API | N/A | N/A | N/A | No structural integrity issues identified; `pkg/apis/core/` has `doc.go` present | N/A |
+*No structural integrity issues identified; `pkg/apis/core/` has `doc.go` present*
 
 ### 2.14 SYS-SEC-DTA — Secret Management × Data Access
 
 **Scope:** Secret storage in etcd, encryption/decryption operations
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-SEC-DTA | N/A | N/A | N/A | No structural integrity issues identified in secret data access scope | N/A |
+*No structural integrity issues identified in secret data access scope*
 
 ### 2.15 SYS-IMG-IAC — Image Supply Chain × IaC Layer
 
 **Scope:** Pause container Dockerfile, server image Dockerfile
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-IMG-IAC | N/A | N/A | N/A | No structural integrity issues identified in image IaC scope; Dockerfiles reference pinned base image versions | N/A |
+*No structural integrity issues identified in image IaC scope; Dockerfiles reference pinned base image versions*
 
 ### 2.16 SYS-IMG-CFG — Image Supply Chain × Configuration/Environment
 
@@ -222,9 +206,7 @@ Integrity findings are mapped to CIS Kubernetes Benchmark v1.12.0 sections where
 
 **Scope:** External dependency tracking in `build/dependencies.yaml`
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-IMG-DEP | N/A | N/A | N/A | No structural integrity issues identified; dependency version pins are valid and referenced files exist | N/A |
+*No structural integrity issues identified; dependency version pins are valid and referenced files exist*
 
 ### 2.19 SYS-CCD-CFG — CI/CD × Configuration/Environment
 
@@ -257,9 +239,7 @@ Integrity findings are mapped to CIS Kubernetes Benchmark v1.12.0 sections where
 
 **Scope:** Server image Dockerfile, pause container image
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-RUN-IAC | N/A | N/A | N/A | No structural integrity issues identified in runtime IaC scope | N/A |
+*No structural integrity issues identified in runtime IaC scope*
 
 ### 2.23 SYS-RUN-ORC — Application Runtime × Orchestration Layer
 
@@ -289,9 +269,7 @@ Integrity findings are mapped to CIS Kubernetes Benchmark v1.12.0 sections where
 
 **Scope:** Runtime Go module dependencies in `go.mod`
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-RUN-DEP | N/A | N/A | N/A | No structural integrity issues identified; all runtime dependency versions are pinned in `go.mod` with integrity checksums in `go.sum` | N/A |
+*No structural integrity issues identified; all runtime dependency versions are pinned in `go.mod` with integrity checksums in `go.sum`*
 
 ### 2.27 SYS-RUN-API — Application Runtime × API/Interface
 
@@ -305,33 +283,25 @@ Integrity findings are mapped to CIS Kubernetes Benchmark v1.12.0 sections where
 
 **Scope:** Audit event generation, audit policy evaluation
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-OBS-ORC | N/A | N/A | N/A | Audit event generation is implemented in staging module `k8s.io/apiserver/pkg/audit/`; no structural integrity issues identified in the in-tree orchestration references to the audit subsystem | 3.2 |
+*Audit event generation is implemented in staging module `k8s.io/apiserver/pkg/audit/`; no structural integrity issues identified in the in-tree orchestration references to the audit subsystem*
 
 ### 2.29 SYS-OBS-APP — Observability × Application Source
 
 **Scope:** Metrics endpoint registration, Prometheus instrumentation, health probes
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-OBS-APP | N/A | N/A | N/A | No structural integrity issues identified in observability application source | 3.2 |
+*No structural integrity issues identified in observability application source*
 
 ### 2.30 SYS-OBS-CFG — Observability × Configuration/Environment
 
 **Scope:** Audit policy configuration, metrics settings
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-OBS-CFG | N/A | N/A | N/A | No structural integrity issues identified in observability configuration scope | 3.2 |
+*No structural integrity issues identified in observability configuration scope*
 
 ### 2.31 SYS-OBS-API — Observability × API/Interface
 
 **Scope:** Audit API types, metrics API surface
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-OBS-API | N/A | N/A | N/A | No structural integrity issues identified in observability API scope | N/A |
+*No structural integrity issues identified in observability API scope*
 
 ### 2.32 SYS-CMP-ORC — Compliance × Orchestration Layer
 
@@ -355,97 +325,73 @@ Integrity findings are mapped to CIS Kubernetes Benchmark v1.12.0 sections where
 
 **Scope:** Admission webhook configurations, enabled/disabled plugin lists
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-CMP-CFG | N/A | N/A | N/A | No structural integrity issues identified in compliance configuration scope | 5.2 |
+*No structural integrity issues identified in compliance configuration scope*
 
 ### 2.35 SYS-CMP-API — Compliance × API/Interface
 
 **Scope:** Admission API types, AdmissionRegistration types
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-CMP-API | N/A | N/A | N/A | No structural integrity issues identified; `pkg/apis/admission/` and `pkg/apis/admissionregistration/` have `doc.go` present | 5.2 |
+*No structural integrity issues identified; `pkg/apis/admission/` and `pkg/apis/admissionregistration/` have `doc.go` present*
 
 ### 2.36 SYS-DAT-ORC — Data Persistence × Orchestration Layer
 
 **Scope:** Volume controller orchestration, PV lifecycle management
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-DAT-ORC | N/A | N/A | N/A | No structural integrity issues identified in data persistence orchestration scope | 2 |
+*No structural integrity issues identified in data persistence orchestration scope*
 
 ### 2.37 SYS-DAT-APP — Data Persistence × Application Source
 
 **Scope:** Volume plugin implementations (`pkg/volume/`)
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-DAT-APP | N/A | N/A | N/A | No structural integrity issues identified in volume plugin implementations | 5.4 |
+*No structural integrity issues identified in volume plugin implementations*
 
 ### 2.38 SYS-DAT-CFG — Data Persistence × Configuration/Environment
 
 **Scope:** StorageClass definitions, reclaim policies
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-DAT-CFG | N/A | N/A | N/A | No structural integrity issues identified in data persistence configuration | 2 |
+*No structural integrity issues identified in data persistence configuration*
 
 ### 2.39 SYS-DAT-API — Data Persistence × API/Interface
 
 **Scope:** Storage API types (`pkg/apis/storage/`)
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-DAT-API | N/A | N/A | N/A | No structural integrity issues identified; `pkg/apis/storage/` has `doc.go` present | 2 |
+*No structural integrity issues identified; `pkg/apis/storage/` has `doc.go` present*
 
 ### 2.40 SYS-DAT-DTA — Data Persistence × Data Access
 
 **Scope:** etcd state storage, volume attach/detach tracking
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-DAT-DTA | N/A | N/A | N/A | No structural integrity issues identified in data persistence data access scope | 2 |
+*No structural integrity issues identified in data persistence data access scope*
 
 ### 2.41 SYS-EXT-ORC — External Integrations × Orchestration Layer
 
 **Scope:** Cloud controller manager, external webhook dispatch
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-EXT-ORC | N/A | N/A | N/A | No structural integrity issues identified in external integration orchestration scope | 1.2 |
+*No structural integrity issues identified in external integration orchestration scope*
 
 ### 2.42 SYS-EXT-APP — External Integrations × Application Source
 
 **Scope:** External credential providers, webhook client implementations
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-EXT-APP | N/A | N/A | N/A | No structural integrity issues identified in external integration application source | 1.2 |
+*No structural integrity issues identified in external integration application source*
 
 ### 2.43 SYS-EXT-CFG — External Integrations × Configuration/Environment
 
 **Scope:** Cloud provider configuration, webhook endpoint URLs
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-EXT-CFG | N/A | N/A | N/A | No structural integrity issues identified in external integration configuration | 1.2 |
+*No structural integrity issues identified in external integration configuration*
 
 ### 2.44 SYS-EXT-DEP — External Integrations × Dependency/Package
 
 **Scope:** External integration dependencies in `go.mod`, staging references
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-EXT-DEP | N/A | N/A | N/A | No structural integrity issues identified; staging replace directives verified intact | N/A |
+*No structural integrity issues identified; staging replace directives verified intact*
 
 ### 2.45 SYS-EXT-API — External Integrations × API/Interface
 
 **Scope:** Cloud provider API contracts, webhook interfaces
 
-| system_id | component_path | issue_type | severity | description | CIS_benchmark_check_id |
-|---|---|---|---|---|---|
-| SYS-EXT-API | N/A | N/A | N/A | No structural integrity issues identified in external API scope | 1.2 |
+*No structural integrity issues identified in external API scope*
 
 ---
 
@@ -785,27 +731,27 @@ sequenceDiagram
 | Severity | Count | Percentage |
 |---|---|---|
 | Critical | 1 | 2.6% |
-| Moderate | 15 | 38.5% |
-| Minor | 23 | 59.0% |
+| Moderate | 14 | 35.9% |
+| Minor | 24 | 61.5% |
 | **Total** | **39** | **100.0%** |
 
 ### 11.2 Distribution by Issue Type
 
 | Issue Type | Critical | Moderate | Minor | Total |
 |---|---|---|---|---|
-| Broken Cross-Reference | 1 | 2 | 9 | 12 |
-| Incomplete Error Handling | 0 | 8 | 0 | 8 |
-| Missing Environment Variable | 0 | 1 | 7 | 8 |
-| Unreachable Code | 0 | 1 | 3 | 4 |
+| Broken Cross-Reference | 1 | 2 | 10 | 13 |
+| Incomplete Error Handling | 0 | 10 | 0 | 10 |
+| Missing Environment Variable | 0 | 1 | 5 | 6 |
+| Unreachable Code | 0 | 1 | 2 | 3 |
 | Orphaned Configuration | 0 | 0 | 3 | 3 |
 | Dangling Service Dependency | 0 | 0 | 4 | 4 |
-| **Total** | **1** | **12** | **26** | **39** |
+| **Total** | **1** | **14** | **24** | **39** |
 
 ### 11.3 Distribution by System Vertical
 
 | Vertical | Critical | Moderate | Minor | Total |
 |---|---|---|---|---|
-| Identity/Access (IAM) | 0 | 6 | 10 | 16 |
+| Identity/Access (IAM) | 0 | 11 | 10 | 21 |
 | Compliance (CMP) | 1 | 2 | 1 | 4 |
 | CI/CD (CCD) | 0 | 0 | 5 | 5 |
 | Application Runtime (RUN) | 0 | 0 | 5 | 5 |
@@ -815,9 +761,9 @@ sequenceDiagram
 | Observability (OBS) | 0 | 0 | 0 | 0 |
 | Data Persistence (DAT) | 0 | 0 | 0 | 0 |
 | External Integrations (EXT) | 0 | 0 | 0 | 0 |
-| **Total** | **1** | **9** | **24** | **34** |
+| **Total** | **1** | **14** | **24** | **39** |
 
-*Note: Some findings span cross-cutting concerns and are counted once under their primary system.*
+*Note: Includes findings from per-system tables (§2) and supplementary error handling analysis (§8). Five additional Incomplete Error Handling findings (F-INT-035 through F-INT-039) in the Identity/Access vertical are documented in §8 with deeper boundary analysis.*
 
 ### 11.4 Highest-Severity Findings
 
