@@ -1,0 +1,29 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: blitzy-kubernetes
+  description: "Comprehensive multi-framework compliance audit of the Kubernetes monorepo"
+  tags:
+    - go
+    - infrastructure
+    - in-progress
+  labels:
+    blitzy.com/status: in-progress
+    blitzy.com/language: go
+  annotations:
+    github.com/project-slug: Blitzy-Sandbox/blitzy-kubernetes
+    backstage.io/source-location: url:https://github.com/Blitzy-Sandbox/blitzy-kubernetes/tree/master/
+  links:
+    - url: https://github.com/Blitzy-Sandbox/blitzy-kubernetes
+      title: GitHub Repository
+    - url: https://github.com/Blitzy-Sandbox/blitzy-kubernetes/pull/2
+      title: "PR #2: Multi-Framework Compliance Audit"
+      icon: github
+    - url: https://github.com/Blitzy-Sandbox/blitzy-kubernetes/tree/master/blitzy/documentation
+      title: Blitzy Documentation
+      icon: docs
+spec:
+  type: service
+  lifecycle: experimental
+  owner: blitzy-sandbox
+  system: blitzy-sandbox-projects
