@@ -33,6 +33,7 @@ limitations under the License.
 package replication
 
 import (
+	"context"
 	"reflect"
 	"sync"
 	"testing"
@@ -54,6 +55,7 @@ import (
 	appsv1autoscaling "k8s.io/client-go/applyconfigurations/autoscaling/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	core "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2/ktesting"
@@ -294,13 +296,39 @@ func TestNewReplicationManager(t *testing.T) {
 			require.True(t, ok, "controllerFeatures type assertion failed; got %T", featuresVal.Interface())
 			assert.False(t, features.EnableStatusTerminatingReplicas,
 				"ReplicationController controller must NOT enable status terminating replicas")
+
+			// Controller-name contract ("replication_controller"):
+			//
+			// NewReplicationManager passes "replication_controller" as the
+			// metricOwnerName positional argument to replicaset.NewBaseController
+			// (see replication_controller.go). However, NewBaseController does NOT
+			// retain metricOwnerName in any exported or unexported field of the
+			// returned ReplicaSetController: the parameter appears only in the
+			// NewBaseController signature in replica_set.go and is never assigned.
+			// The adjacent queueName argument ("replicationmanager") IS consumed,
+			// but only as the workqueue's metrics name, which the no-op metrics
+			// provider used in unit tests discards. Neither string is therefore
+			// reliably observable on the constructed object, so asserting
+			// "replication_controller" directly would require a production change,
+			// which is out of scope for this test-only change.
+			//
+			// Closest enforceable assertion: confirm the embedded controller's
+			// workqueue was constructed by NewBaseController. A non-nil queue
+			// proves the full (gvk, metricOwnerName, queueName, ...) argument tuple
+			// was accepted and wired; combined with the GroupVersionKind assertion
+			// above, this is the strongest construction-identity guarantee
+			// observable from the returned *ReplicationManager.
+			queueVal := readUnexportedField(t, &rm.ReplicaSetController, "queue")
+			require.True(t, queueVal.IsValid(), "queue field not found on embedded ReplicaSetController")
+			assert.False(t, queueVal.IsNil(), "NewBaseController must construct the controller workqueue")
 		})
 	}
 }
 
 // TestConvertRCtoRSAndBack exercises the convertRCtoRS / convertRStoRC pair and
 // asserts that a full RC -> RS -> RC round-trip preserves identity metadata,
-// owner references, replica count, selector, and observedGeneration.
+// labels, annotations, finalizers, owner references, replica count, selector,
+// and observedGeneration.
 //
 // NOTE: apps.ReplicaSet.Spec.Replicas and v1.ReplicationControllerSpec.Replicas
 // are both *int32, so replica comparisons dereference the pointer after a
@@ -364,6 +392,11 @@ func TestConvertRCtoRSAndBack(t *testing.T) {
 			assert.Equal(t, tc.rc.Labels, rs.Labels, "Labels mismatch")
 			assert.Equal(t, tc.rc.Status.ObservedGeneration, rs.Status.ObservedGeneration, "ObservedGeneration mismatch")
 			assert.Equal(t, tc.rc.OwnerReferences, rs.OwnerReferences, "OwnerReferences mismatch")
+			// Annotations and finalizers are part of ObjectMeta and must survive
+			// the conversion (the AAP requires labels AND annotations preservation;
+			// the "RC with finalizers" fixture row also exercises finalizers).
+			assert.Equal(t, tc.rc.Annotations, rs.Annotations, "Annotations mismatch")
+			assert.Equal(t, tc.rc.Finalizers, rs.Finalizers, "Finalizers mismatch")
 
 			// Step 2: RS -> RC (round-trip).
 			rc2, err := convertRStoRC(rs)
@@ -380,6 +413,8 @@ func TestConvertRCtoRSAndBack(t *testing.T) {
 			assert.Equal(t, tc.rc.Spec.Selector, rc2.Spec.Selector, "Round-trip Selector mismatch")
 			assert.Equal(t, tc.rc.Status.ObservedGeneration, rc2.Status.ObservedGeneration, "Round-trip ObservedGeneration mismatch")
 			assert.Equal(t, tc.rc.OwnerReferences, rc2.OwnerReferences, "Round-trip OwnerReferences mismatch")
+			assert.Equal(t, tc.rc.Annotations, rc2.Annotations, "Round-trip Annotations mismatch")
+			assert.Equal(t, tc.rc.Finalizers, rc2.Finalizers, "Round-trip Finalizers mismatch")
 
 			// Surface any selector difference with a readable diff.
 			if diff := cmp.Diff(tc.rc.Spec.Selector, rc2.Spec.Selector); diff != "" {
@@ -517,13 +552,17 @@ func reflectFakeError() error {
 // TestInformerAdapter verifies that informerAdapter.Informer() and
 // informerAdapter.Lister() return the conversion-wrapping types.
 func TestInformerAdapter(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	factory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
-	rcInformer := factory.Core().V1().ReplicationControllers()
-
-	adapter := informerAdapter{rcInformer: rcInformer}
+	// newAdapter builds a fresh informerAdapter (with its own fake clientset and
+	// informer factory) so each subtest owns isolated mutable state and is
+	// independently runnable, per the no-shared-mutable-state directive.
+	newAdapter := func() informerAdapter {
+		client := fake.NewSimpleClientset()
+		factory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
+		return informerAdapter{rcInformer: factory.Core().V1().ReplicationControllers()}
+	}
 
 	t.Run("Informer returns non-nil conversionInformer", func(t *testing.T) {
+		adapter := newAdapter()
 		inf := adapter.Informer()
 		require.NotNil(t, inf)
 		_, ok := inf.(conversionInformer)
@@ -531,6 +570,7 @@ func TestInformerAdapter(t *testing.T) {
 	})
 
 	t.Run("Lister returns non-nil conversionLister", func(t *testing.T) {
+		adapter := newAdapter()
 		lister := adapter.Lister()
 		require.NotNil(t, lister)
 		_, ok := lister.(conversionLister)
@@ -542,13 +582,17 @@ func TestInformerAdapter(t *testing.T) {
 // registration methods wrap the provided handler and return a registration
 // handle without error (the underlying informer is never started).
 func TestConversionInformerAddEventHandler(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	factory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
-	rcInformer := factory.Core().V1().ReplicationControllers().Informer()
-
-	convInformer := conversionInformer{rcInformer}
+	// newConvInformer builds a fresh conversionInformer wrapping its own informer
+	// so the two subtests never register handlers on a shared informer (which
+	// would be shared mutable state across cases).
+	newConvInformer := func() conversionInformer {
+		client := fake.NewSimpleClientset()
+		factory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
+		return conversionInformer{factory.Core().V1().ReplicationControllers().Informer()}
+	}
 
 	t.Run("AddEventHandler returns registration", func(t *testing.T) {
+		convInformer := newConvInformer()
 		handler := &fakeResourceEventHandler{}
 		reg, err := convInformer.AddEventHandler(handler)
 		require.NoError(t, err)
@@ -556,6 +600,7 @@ func TestConversionInformerAddEventHandler(t *testing.T) {
 	})
 
 	t.Run("AddEventHandlerWithResyncPeriod returns registration", func(t *testing.T) {
+		convInformer := newConvInformer()
 		handler := &fakeResourceEventHandler{}
 		reg, err := convInformer.AddEventHandlerWithResyncPeriod(handler, 0)
 		require.NoError(t, err)
@@ -571,22 +616,28 @@ func TestConversionInformerAddEventHandler(t *testing.T) {
 // The informer is never started; the lister is populated by adding RCs to the
 // underlying indexer directly.
 func TestConversionLister(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	factory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
-	rcInformer := factory.Core().V1().ReplicationControllers()
-
-	rcs := []*v1.ReplicationController{
-		newTestRC("rc-a", "ns-1", 1, map[string]string{"app": "a"}),
-		newTestRC("rc-b", "ns-1", 2, map[string]string{"app": "b"}),
-		newTestRC("rc-c", "ns-2", 3, map[string]string{"app": "a"}),
+	// newPopulatedLister builds a fresh conversionLister backed by its own
+	// informer indexer, pre-populated with the same three RCs, so each subtest
+	// owns isolated state and is independently runnable. The informer is never
+	// started; objects are added to the indexer directly.
+	newPopulatedLister := func(t *testing.T) conversionLister {
+		t.Helper()
+		client := fake.NewSimpleClientset()
+		factory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
+		rcInformer := factory.Core().V1().ReplicationControllers()
+		rcs := []*v1.ReplicationController{
+			newTestRC("rc-a", "ns-1", 1, map[string]string{"app": "a"}),
+			newTestRC("rc-b", "ns-1", 2, map[string]string{"app": "b"}),
+			newTestRC("rc-c", "ns-2", 3, map[string]string{"app": "a"}),
+		}
+		for _, rc := range rcs {
+			require.NoError(t, rcInformer.Informer().GetIndexer().Add(rc))
+		}
+		return conversionLister{rcLister: rcInformer.Lister()}
 	}
-	for _, rc := range rcs {
-		require.NoError(t, rcInformer.Informer().GetIndexer().Add(rc))
-	}
-
-	lister := conversionLister{rcLister: rcInformer.Lister()}
 
 	t.Run("List all", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		got, err := lister.List(labels.Everything())
 		require.NoError(t, err)
 		assert.Len(t, got, 3, "List(everything) should return all 3 RCs")
@@ -600,12 +651,14 @@ func TestConversionLister(t *testing.T) {
 	})
 
 	t.Run("List with selector filter", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		got, err := lister.List(labels.SelectorFromSet(labels.Set{"app": "a"}))
 		require.NoError(t, err)
 		assert.Len(t, got, 2, "should match rc-a and rc-c (both app=a)")
 	})
 
 	t.Run("Namespace lister List", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		nsLister := lister.ReplicaSets("ns-1")
 		got, err := nsLister.List(labels.Everything())
 		require.NoError(t, err)
@@ -613,6 +666,7 @@ func TestConversionLister(t *testing.T) {
 	})
 
 	t.Run("Namespace lister Get existing", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		nsLister := lister.ReplicaSets("ns-1")
 		got, err := nsLister.Get("rc-a")
 		require.NoError(t, err)
@@ -623,6 +677,7 @@ func TestConversionLister(t *testing.T) {
 	})
 
 	t.Run("Namespace lister Get missing returns NotFound", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		nsLister := lister.ReplicaSets("ns-1")
 		got, err := nsLister.Get("missing")
 		assert.Nil(t, got)
@@ -631,6 +686,7 @@ func TestConversionLister(t *testing.T) {
 	})
 
 	t.Run("GetPodReplicaSets matching pod", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		pod := &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "pod-a",
@@ -645,6 +701,7 @@ func TestConversionLister(t *testing.T) {
 	})
 
 	t.Run("GetPodReplicaSets no matching RC returns error", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		pod := &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "pod-z",
@@ -662,6 +719,7 @@ func TestConversionLister(t *testing.T) {
 	})
 
 	t.Run("GetPodReplicaSets pod with no labels returns error", func(t *testing.T) {
+		lister := newPopulatedLister(t)
 		pod := &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "pod-no-labels",
@@ -810,10 +868,14 @@ func TestConversionEventHandlerOnDelete(t *testing.T) {
 // TestClientsetAdapter verifies that clientsetAdapter exposes the conversion
 // app clients, and that the resulting ReplicaSets client is a conversionClient.
 func TestClientsetAdapter(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	adapter := clientsetAdapter{Interface: client}
+	// newAdapter builds a fresh clientsetAdapter (with its own fake clientset) so
+	// each subtest owns isolated state and is independently runnable.
+	newAdapter := func() clientsetAdapter {
+		return clientsetAdapter{Interface: fake.NewSimpleClientset()}
+	}
 
 	t.Run("AppsV1 returns conversionAppsV1Client", func(t *testing.T) {
+		adapter := newAdapter()
 		got := adapter.AppsV1()
 		require.NotNil(t, got)
 		_, ok := got.(conversionAppsV1Client)
@@ -821,6 +883,7 @@ func TestClientsetAdapter(t *testing.T) {
 	})
 
 	t.Run("Apps returns conversionAppsV1Client", func(t *testing.T) {
+		adapter := newAdapter()
 		got := adapter.Apps()
 		require.NotNil(t, got)
 		_, ok := got.(conversionAppsV1Client)
@@ -828,6 +891,7 @@ func TestClientsetAdapter(t *testing.T) {
 	})
 
 	t.Run("ReplicaSets returns conversionClient", func(t *testing.T) {
+		adapter := newAdapter()
 		got := adapter.AppsV1().ReplicaSets("ns")
 		require.NotNil(t, got)
 		_, ok := got.(conversionClient)
@@ -1002,66 +1066,65 @@ func TestConversionClientList(t *testing.T) {
 // the ReplicaSetController (which wraps the shared informer and does not call
 // Watch/Patch/Apply/Scale through this client).
 func TestConversionClientNotImplemented(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
-	client := fake.NewSimpleClientset()
-	convClient := clientsetAdapter{Interface: client}.AppsV1().ReplicaSets("ns")
-
+	// The call closures receive a freshly-constructed ctx and conversionClient
+	// (built per subtest in the loop below) so no fake-clientset or conversion
+	// client state is shared across cases.
 	tests := []struct {
 		name    string
-		call    func() (interface{}, error)
+		call    func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error)
 		wantErr string
 	}{
 		{
 			name: "Watch",
-			call: func() (interface{}, error) {
-				return convClient.Watch(ctx, metav1.ListOptions{})
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
+				return c.Watch(ctx, metav1.ListOptions{})
 			},
 			wantErr: "Watch() is not implemented for conversionClient",
 		},
 		{
 			name: "Patch",
-			call: func() (interface{}, error) {
-				return convClient.Patch(ctx, "name", types.JSONPatchType, []byte("[]"), metav1.PatchOptions{})
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
+				return c.Patch(ctx, "name", types.JSONPatchType, []byte("[]"), metav1.PatchOptions{})
 			},
 			wantErr: "Patch() is not implemented for conversionClient",
 		},
 		{
 			name: "Apply",
-			call: func() (interface{}, error) {
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
 				cfg := appsv1apply.ReplicaSet("rs", "ns")
-				return convClient.Apply(ctx, cfg, metav1.ApplyOptions{})
+				return c.Apply(ctx, cfg, metav1.ApplyOptions{})
 			},
 			wantErr: "Apply() is not implemented for conversionClient",
 		},
 		{
 			name: "ApplyStatus",
-			call: func() (interface{}, error) {
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
 				cfg := appsv1apply.ReplicaSet("rs", "ns")
-				return convClient.ApplyStatus(ctx, cfg, metav1.ApplyOptions{})
+				return c.ApplyStatus(ctx, cfg, metav1.ApplyOptions{})
 			},
 			wantErr: "ApplyStatus() is not implemented for conversionClient",
 		},
 		{
 			name: "GetScale",
-			call: func() (interface{}, error) {
-				return convClient.GetScale(ctx, "rs", metav1.GetOptions{})
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
+				return c.GetScale(ctx, "rs", metav1.GetOptions{})
 			},
 			wantErr: "GetScale() is not implemented for conversionClient",
 		},
 		{
 			name: "UpdateScale",
-			call: func() (interface{}, error) {
-				return convClient.UpdateScale(ctx, "rs", &autoscalingv1.Scale{}, metav1.UpdateOptions{})
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
+				return c.UpdateScale(ctx, "rs", &autoscalingv1.Scale{}, metav1.UpdateOptions{})
 			},
 			wantErr: "UpdateScale() is not implemented for conversionClient",
 		},
 		{
 			name: "ApplyScale",
-			call: func() (interface{}, error) {
+			call: func(ctx context.Context, c appsv1client.ReplicaSetInterface) (interface{}, error) {
 				// autoscaling/v1 ScaleApplyConfiguration is constructed with no
 				// arguments (unlike apps/v1 ReplicaSet, which takes name+namespace).
 				cfg := appsv1autoscaling.Scale()
-				return convClient.ApplyScale(ctx, "rs", cfg, metav1.ApplyOptions{})
+				return c.ApplyScale(ctx, "rs", cfg, metav1.ApplyOptions{})
 			},
 			wantErr: "ApplyScale() is not implemented for conversionClient",
 		},
@@ -1069,7 +1132,11 @@ func TestConversionClientNotImplemented(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := tc.call()
+			// Fresh fake clientset and conversion client per subtest: no shared
+			// mutable state, so each case is independently runnable.
+			_, ctx := ktesting.NewTestContext(t)
+			convClient := clientsetAdapter{Interface: fake.NewSimpleClientset()}.AppsV1().ReplicaSets("ns")
+			result, err := tc.call(ctx, convClient)
 			require.Error(t, err, "%s should return an error", tc.name)
 			assert.Equal(t, tc.wantErr, err.Error(), "%s error message mismatch", tc.name)
 			_ = result

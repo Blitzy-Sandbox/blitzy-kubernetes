@@ -138,6 +138,25 @@ func TestDeletePods(t *testing.T) {
 		}
 	}
 
+	// newMirrorPod returns a pod scheduled to nodeName that carries the kubelet
+	// mirror-pod annotation (v1.MirrorPodAnnotationKey == "kubernetes.io/config.mirror").
+	//
+	// AAP/production mismatch (documented intentionally, not silently omitted):
+	// the AAP test blueprint listed a "pod with mirror-pod annotation skipped"
+	// case for DeletePods, but the production DeletePods (controller_utils.go)
+	// has NO mirror-pod branch. It only skips a pod when (a) the pod's
+	// Spec.NodeName differs from the target node, (b) DeletionGracePeriodSeconds
+	// is non-nil, or (c) the pod is owned by a DaemonSet. A mirror pod matches
+	// none of those, so it is treated like any other pod and IS deleted. The row
+	// below asserts that actual production behavior and records the mismatch so a
+	// future decision to special-case mirror pods (a production change, out of
+	// scope here) can be made deliberately rather than by accident.
+	newMirrorPod := func() *v1.Pod {
+		p := testutil.NewPod("p1", nodeName)
+		p.Annotations = map[string]string{v1.MirrorPodAnnotationKey: ""}
+		return p
+	}
+
 	tests := []struct {
 		name              string
 		pods              []*v1.Pod
@@ -199,6 +218,19 @@ func TestDeletePods(t *testing.T) {
 			// SetPodTerminationReason runs before the DaemonSet check.
 			wantUpdateStatus: 1,
 			wantEvents:       1,
+		},
+		{
+			// Mirror pods are NOT skipped by DeletePods: production has no
+			// mirror-pod branch (see newMirrorPod above for the full rationale),
+			// so the pod is deleted exactly like single_pod_successful_delete.
+			name:              "mirror_pod_is_NOT_skipped_no_production_mirror_branch",
+			pods:              []*v1.Pod{newMirrorPod()},
+			wantRemaining:     true,
+			wantErr:           false,
+			wantDeleteActions: 1,
+			wantUpdateStatus:  1,
+			// DeletingAllPods (node) + NodeControllerEviction (pod).
+			wantEvents: 2,
 		},
 		{
 			name: "API_NotFound_on_Delete_is_treated_as_success",

@@ -1,3 +1,19 @@
+<!--
+Copyright 2026 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Testing in Kubernetes
 
 This document explains the test tiers used in the `k8s.io/kubernetes` monorepo,
@@ -128,7 +144,13 @@ These defaults are read directly from `hack/make-rules/test.sh`:
 | `KUBE_TEST_ARGS` | (empty) | Extra arguments for the `go test` invocation. The value is `eval`'d, so embedded quoting is preserved. |
 | `FULL_LOG` | (unset) | When set to any value, `gotestsum` uses the `standard-verbose` format instead of the default `pkgname-and-test-fails`. |
 | `PARALLEL` | `-1` | The `-p` value forwarded to `go test`; values greater than `0` set the parallelism explicitly. |
-| `GOTOOLCHAIN` | `local` | Forces the locally installed Go toolchain. Use `auto` to allow Go to fetch a matching toolchain on demand. |
+
+> **Note:** `GOTOOLCHAIN=local` is **not** a default set or exported by
+> `hack/make-rules/test.sh` for the test run itself. It is an environment
+> recommendation from the development setup (the repository pins its Go version
+> via `.go-version`). The only place `test.sh` touches `GOTOOLCHAIN` is when it
+> auto-installs `gotestsum` from `./hack/tools`, where it sets a computed value
+> for that one install command — never `local`, and never for `go test`.
 
 Internally the script runs tests through
 `gotestsum --raw-command -- go test -json`, which streams JSON for both
@@ -259,14 +281,16 @@ A test that needs a live apiserver obtains a typed `client.Interface` and a
 
 ```go
 import (
-	"context"
 	"testing"
 
+	"k8s.io/klog/v2/ktesting"
 	"k8s.io/kubernetes/test/integration/framework"
 )
 
 func TestSomething(t *testing.T) {
-	ctx := context.Background()
+	// Use ktesting.NewTestContext(t) (not context.Background()) so logs emitted
+	// during the test are routed to t.Log and the context is canceled with the test.
+	_, ctx := ktesting.NewTestContext(t)
 	client, _, tearDown := framework.StartTestServer(ctx, t, framework.TestServerSetup{})
 	defer tearDown()
 	// ... call client.CoreV1().Namespaces().Create(ctx, ...) etc.
@@ -452,17 +476,32 @@ local working copy:
    covered by `TestSyncNamespaceFromKey/exists_deleter_invoked` in
    `pkg/controller/namespace/namespace_controller_test.go`.
 2. Open the production file in your editor.
-3. Temporarily break the behavior — for example, replace the deleter call
-   `return nm.namespacedResourcesDeleter.Delete(ctx, namespace.Name)` with
-   `return nil`.
+3. Temporarily break the behavior so the production deleter is no longer
+   invoked. Bypass the deleter call while keeping the `namespace` variable
+   referenced, so the package still compiles and the test runs to its
+   assertions:
+
+   ```go
+   // return nm.namespacedResourcesDeleter.Delete(ctx, namespace.Name)
+   _ = namespace
+   return nil
+   ```
+
+   (Replacing the line with a bare `return nil` instead also fails — but as a
+   compile error, because `namespace` then becomes unused. That still proves the
+   point; the bypass above is preferred because it exercises the runtime
+   assertion described in step 5.)
 4. Run the covering subtest:
 
    ```bash
    make test WHAT=./pkg/controller/namespace/... KUBE_TEST_ARGS='-run TestSyncNamespaceFromKey/exists_deleter_invoked'
    ```
 
-5. The test **MUST** fail (typically because the expected deleter action no longer
-   appears in `client.Actions()`).
+5. The test **MUST** fail. The anchor subtest asserts
+   `fakeDeleter.CallCount() == 1`; bypassing the production deleter call leaves
+   `fakeDeleter.CallCount()` at `0`, so the assertion fails. (The `fakeDeleter`
+   test double records each `Delete` invocation directly via its own counter; it
+   does **not** rely on `client.Actions()`.)
 6. **Revert** the production change immediately. The break is never committed; it
    is a one-time validation step on your local working copy.
 
