@@ -1245,6 +1245,30 @@ func TestControllerV2SyncCronJob(t *testing.T) {
 			expectCompleted:            true,
 			jobPresentInCJActiveStatus: true,
 		},
+		"transient conflict on create returns error": {
+			// Inject a transient API error on Job creation to exercise the default
+			// error branch of syncCronJob. The controller should propagate the
+			// error, emit a FailedCreate warning event, and NOT create the Job
+			// or update status. The outer workqueue (not exercised here) is the
+			// component responsible for requeueing on returned errors.
+			concurrencyPolicy: "Allow",
+			schedule:          onTheHour,
+			deadline:          noDead,
+			jobCreationTime:   justAfterThePriorHour(),
+			now:               *justAfterTheHour(),
+			jobCreateError: errors.NewConflict(
+				schema.GroupResource{Resource: "jobs", Group: "batch"},
+				"mycronjob-1234567890",
+				fmt.Errorf("simulated conflict"),
+			),
+			expectCreate:               false,
+			expectActive:               0,
+			expectedWarnings:           1,
+			expectErr:                  true,
+			expectRequeueAfter:         false,
+			expectUpdateStatus:         false,
+			jobPresentInCJActiveStatus: true,
+		},
 	}
 	for name, tc := range testCases {
 		name := name
@@ -1985,5 +2009,118 @@ func TestControllerV2JobAlreadyExistsButDifferentOwner(t *testing.T) {
 
 	if len(cronJobControl.Updates) != 0 {
 		t.Fatalf("Unexpected updates to cronjob, got: %d, expected 0", len(cronJobControl.Updates))
+	}
+}
+
+// TestControllerV2SyncCronJobPreservesFinalizers verifies that user-set
+// finalizers on a CronJob are preserved through the controller's sync cycle.
+// The CronJob controller does NOT manage finalizers; this test guards against
+// accidental finalizer-stripping regressions by asserting that the resulting
+// UpdateStatus action carries the same finalizer that was present before sync.
+//
+// Scenario: a CronJob has the user-applied finalizer "example.com/cleanup".
+// When sync triggers a Job creation and status update, the resulting status
+// update payload (captured by fakeCJControl.Updates) must still carry the
+// finalizer because syncCronJob operates on a DeepCopy and never mutates
+// ObjectMeta.Finalizers.
+func TestControllerV2SyncCronJobPreservesFinalizers(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+
+	cj := cronJob()
+	cj.Spec.ConcurrencyPolicy = "Allow"
+	cj.Spec.Schedule = onTheHour
+	cj.ObjectMeta.Finalizers = []string{"example.com/cleanup"}
+	cjCopy := cj.DeepCopy()
+
+	client := fake.NewSimpleClientset(cjCopy)
+	informerFactory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
+	_ = informerFactory.Batch().V1().CronJobs().Informer().GetIndexer().Add(cjCopy)
+
+	jm, err := NewControllerV2(ctx, informerFactory.Batch().V1().Jobs(), informerFactory.Batch().V1().CronJobs(), client)
+	if err != nil {
+		t.Fatalf("unexpected error constructing ControllerV2: %v", err)
+	}
+
+	jm.jobControl = &fakeJobControl{}
+	cronJobControl := &fakeCJControl{CronJob: cjCopy}
+	jm.cronJobControl = cronJobControl
+	jm.now = func() time.Time {
+		return *justAfterTheHour()
+	}
+
+	jm.enqueueController(cjCopy)
+	jm.processNextWorkItem(ctx)
+
+	if len(cronJobControl.Updates) == 0 {
+		t.Fatalf("expected at least one status update via fakeCJControl.UpdateStatus, got 0")
+	}
+
+	// Verify the finalizer is preserved in the resulting update payload.
+	found := false
+	for _, f := range cronJobControl.Updates[0].Finalizers {
+		if f == "example.com/cleanup" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected finalizer 'example.com/cleanup' to be preserved in cronJobControl.Updates[0].Finalizers, got: %v", cronJobControl.Updates[0].Finalizers)
+	}
+}
+
+// TestControllerV2SyncCronJobRemovesFinalizers verifies that when a CronJob's
+// finalizers have been removed (e.g., during a deletion flow where another
+// actor cleared them), the CronJob controller does NOT add them back. The
+// CronJob controller does NOT manage finalizers; this test guards against an
+// unintended regression where the controller would re-add a previously-set
+// finalizer during status updates.
+//
+// Scenario: a CronJob initially had a finalizer "example.com/cleanup" but it
+// has been removed (Finalizers is now nil). Sync triggers a Job creation and
+// status update; the resulting fakeCJControl.Updates[i].Finalizers slice must
+// be empty and must NOT contain the previously-set finalizer.
+func TestControllerV2SyncCronJobRemovesFinalizers(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+
+	cj := cronJob()
+	cj.Spec.ConcurrencyPolicy = "Allow"
+	cj.Spec.Schedule = onTheHour
+	// Simulate that "example.com/cleanup" was previously set but has been removed
+	// (e.g., by another controller or by the user). Finalizers should remain
+	// empty/nil after sync because the cronjob controller does not manage them.
+	cj.ObjectMeta.Finalizers = nil
+	cjCopy := cj.DeepCopy()
+
+	client := fake.NewSimpleClientset(cjCopy)
+	informerFactory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
+	_ = informerFactory.Batch().V1().CronJobs().Informer().GetIndexer().Add(cjCopy)
+
+	jm, err := NewControllerV2(ctx, informerFactory.Batch().V1().Jobs(), informerFactory.Batch().V1().CronJobs(), client)
+	if err != nil {
+		t.Fatalf("unexpected error constructing ControllerV2: %v", err)
+	}
+
+	jm.jobControl = &fakeJobControl{}
+	cronJobControl := &fakeCJControl{CronJob: cjCopy}
+	jm.cronJobControl = cronJobControl
+	jm.now = func() time.Time {
+		return *justAfterTheHour()
+	}
+
+	jm.enqueueController(cjCopy)
+	jm.processNextWorkItem(ctx)
+
+	if len(cronJobControl.Updates) == 0 {
+		t.Fatalf("expected at least one status update via fakeCJControl.UpdateStatus, got 0")
+	}
+
+	// Verify the previously-set finalizer is NOT present in the update payload.
+	for _, f := range cronJobControl.Updates[0].Finalizers {
+		if f == "example.com/cleanup" {
+			t.Errorf("expected previously-set finalizer 'example.com/cleanup' to be absent from cronJobControl.Updates[0].Finalizers, but it was present: %v", cronJobControl.Updates[0].Finalizers)
+		}
+	}
+	if len(cronJobControl.Updates[0].Finalizers) != 0 {
+		t.Errorf("expected cronJobControl.Updates[0].Finalizers to be empty (controller must not add finalizers), got: %v", cronJobControl.Updates[0].Finalizers)
 	}
 }
