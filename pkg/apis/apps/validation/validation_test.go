@@ -19,6 +19,7 @@ package validation
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -114,6 +115,16 @@ func tweakSelectorLabels(labels map[string]string) statefulSetTweak {
 		} else {
 			ss.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
+	}
+}
+
+// tweakSelectorStruct sets Spec.Selector to the given *metav1.LabelSelector verbatim.
+// Unlike tweakSelectorLabels (which always wraps a non-nil map in MatchLabels), this
+// helper allows testing the empty-struct case where both MatchLabels and
+// MatchExpressions are nil, which exercises the "empty selector is invalid" branch.
+func tweakSelectorStruct(sel *metav1.LabelSelector) statefulSetTweak {
+	return func(ss *apps.StatefulSet) {
+		ss.Spec.Selector = sel
 	}
 }
 
@@ -368,6 +379,23 @@ func TestValidateStatefulSet(t *testing.T) {
 		},
 	}
 
+	// emptyImagePodTemplate mirrors validPodTemplate but with an empty container
+	// Image, used to exercise the "missing container image" template-validation
+	// branch (field.Required on spec.template.spec.containers[0].image).
+	emptyImagePodTemplate := api.PodTemplate{
+		Template: api.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: validLabels,
+			},
+			Spec: api.PodSpec{
+				RestartPolicy:                 api.RestartPolicyAlways,
+				DNSPolicy:                     api.DNSClusterFirst,
+				Containers:                    []api.Container{{Name: "abc", Image: "", ImagePullPolicy: "IfNotPresent", TerminationMessagePolicy: api.TerminationMessageReadFile}},
+				TerminationGracePeriodSeconds: ptr.To[int64](30),
+			},
+		},
+	}
+
 	type testCase struct {
 		name string
 		set  apps.StatefulSet
@@ -526,6 +554,19 @@ func TestValidateStatefulSet(t *testing.T) {
 		set: mkStatefulSet(&validPodTemplate,
 			tweakVolumeClaimTemplates(validVolumeClaimTemplates),
 		),
+	}, {
+		name: "replicas at zero",
+		set:  mkStatefulSet(&validPodTemplate, tweakReplicas(0)),
+	}, {
+		name: "replicas at one",
+		set:  mkStatefulSet(&validPodTemplate, tweakReplicas(1)),
+	}, {
+		name: "replicas at MaxInt32 currently accepted",
+		// apivalidation.ValidateNonnegativeField only rejects negative replicas; it
+		// does not enforce an upper bound, so math.MaxInt32 is currently accepted.
+		// This row documents that production behavior (the test must not assert a
+		// failure here, since validation.go is not modified to add an upper bound).
+		set: mkStatefulSet(&validPodTemplate, tweakReplicas(math.MaxInt32)),
 	},
 	}
 
@@ -803,6 +844,36 @@ func TestValidateStatefulSet(t *testing.T) {
 		),
 		errs: field.ErrorList{
 			field.Invalid(field.NewPath("spec", "volumeClaimTemplates").Index(0).Child("spec", "volumeAttributesClassName"), invalidName, ""),
+		},
+	}, {
+		// An empty selector struct (MatchLabels==nil and MatchExpressions==nil) is
+		// distinct from a nil selector: it produces a single "empty selector is
+		// invalid for statefulset" error. Because LabelSelectorAsSelector(&{}) yields
+		// an Everything() selector whose Empty() is true, the template label-match
+		// check is skipped, so no additional template error is emitted.
+		name: "empty selector struct",
+		set:  mkStatefulSet(&validPodTemplate, tweakSelectorStruct(&metav1.LabelSelector{})),
+		errs: field.ErrorList{
+			field.Invalid(field.NewPath("spec", "selector"), nil, ""),
+		},
+	}, {
+		// A label key with a leading dash is not a qualified name. ValidateLabelSelector
+		// flags it at spec.selector.matchLabels, and the subsequent
+		// LabelSelectorAsSelector failure adds a second error at spec.selector. The
+		// template label-match check is skipped because the selector cannot be parsed.
+		name: "label key with leading dash in selector",
+		set:  mkStatefulSet(&validPodTemplate, tweakSelectorLabels(map[string]string{"-leading-dash": "value"})),
+		errs: field.ErrorList{
+			field.Invalid(field.NewPath("spec", "selector", "matchLabels"), nil, ""),
+			field.Invalid(field.NewPath("spec", "selector"), nil, ""),
+		},
+	}, {
+		// A container with an empty Image is rejected by pod-template validation with
+		// a Required error on spec.template.spec.containers[0].image.
+		name: "missing container image",
+		set:  mkStatefulSet(&emptyImagePodTemplate),
+		errs: field.ErrorList{
+			field.Required(field.NewPath("spec", "template", "spec", "containers").Index(0).Child("image"), ""),
 		},
 	},
 	}
@@ -2526,6 +2597,25 @@ func TestValidateDaemonSet(t *testing.T) {
 				},
 			},
 		},
+		// A container with an empty Image yields a Required error at
+		// spec.template.spec.containers[0].image, which satisfies the post-loop
+		// "spec.template." field-prefix check below. The selector matches the
+		// template labels so no other error is produced.
+		"missing container image": {
+			ObjectMeta: metav1.ObjectMeta{Name: "abc", Namespace: metav1.NamespaceDefault},
+			Spec: apps.DaemonSetSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: validSelector},
+				Template: api.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: validSelector,
+					},
+					Spec: podtest.MakePodSpec(podtest.SetContainers(podtest.MakeContainer("abc", podtest.SetContainerImage("")))),
+				},
+				UpdateStrategy: apps.DaemonSetUpdateStrategy{
+					Type: apps.OnDeleteDaemonSetStrategyType,
+				},
+			},
+		},
 	}
 	for k, v := range errorCases {
 		errs := ValidateDaemonSet(&v, corevalidation.PodValidationOptions{})
@@ -2603,6 +2693,21 @@ func TestValidateDeployment(t *testing.T) {
 				ContainerPort: 12345,
 				Protocol:      api.ProtocolTCP,
 			}}
+		}),
+		// Replicas boundary values. Replicas is an int32 value (not a pointer) and is
+		// only validated by apivalidation.ValidateNonnegativeField, so zero and one
+		// are valid.
+		validDeployment(func(d *apps.Deployment) {
+			d.Spec.Replicas = 0
+		}),
+		validDeployment(func(d *apps.Deployment) {
+			d.Spec.Replicas = 1
+		}),
+		// ValidateNonnegativeField does not enforce an upper bound on replicas, so
+		// math.MaxInt32 is currently accepted. This row documents that production
+		// behavior (the test must not assert a failure here).
+		validDeployment(func(d *apps.Deployment) {
+			d.Spec.Replicas = math.MaxInt32
 		}),
 	}
 	for _, successCase := range successCases {
@@ -2697,6 +2802,38 @@ func TestValidateDeployment(t *testing.T) {
 			TerminationMessagePolicy: "File"},
 	}}
 	errorCases["ephemeral containers not allowed"] = invalidEphemeralContainersDeployment
+
+	// Selector is required; a nil selector yields a Required error at spec.selector
+	// as the first error.
+	nilSelectorDeployment := validDeployment()
+	nilSelectorDeployment.Spec.Selector = nil
+	errorCases["spec.selector: Required value"] = nilSelectorDeployment
+
+	// An empty selector struct (no MatchLabels, no MatchExpressions) is invalid; the
+	// first error explains that an empty selector is invalid for a deployment.
+	emptySelectorDeployment := validDeployment()
+	emptySelectorDeployment.Spec.Selector = &metav1.LabelSelector{}
+	errorCases["empty selector is invalid for deployment"] = emptySelectorDeployment
+
+	// A label key with a leading dash is not a qualified name; the first error is at
+	// spec.selector.matchLabels.
+	leadingDashSelectorDeployment := validDeployment()
+	leadingDashSelectorDeployment.Spec.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"-leading-dash": "value"},
+	}
+	errorCases["spec.selector.matchLabels"] = leadingDashSelectorDeployment
+
+	// A container with an empty Image is rejected with a Required error at
+	// spec.template.spec.containers[0].image.
+	missingImageDeployment := validDeployment(func(d *apps.Deployment) {
+		d.Spec.Template.Spec.Containers[0].Image = ""
+	})
+	errorCases["spec.template.spec.containers[0].image"] = missingImageDeployment
+
+	// RestartPolicy must be Always for a Deployment; OnFailure is not supported.
+	invalidOnFailurePolicyDeployment := validDeployment()
+	invalidOnFailurePolicyDeployment.Spec.Template.Spec.RestartPolicy = api.RestartPolicyOnFailure
+	errorCases["Unsupported value: \"OnFailure\""] = invalidOnFailurePolicyDeployment
 
 	for k, v := range errorCases {
 		errs := ValidateDeployment(v, corevalidation.PodValidationOptions{})

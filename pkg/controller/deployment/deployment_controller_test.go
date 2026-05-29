@@ -20,11 +20,16 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
 
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	extensions "k8s.io/api/extensions/v1beta1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -1094,5 +1099,386 @@ func generatePodFromRS(rs *apps.ReplicaSet) *v1.Pod {
 			},
 		},
 		Spec: rs.Spec.Template.Spec,
+	}
+}
+
+// TestSyncDeploymentAvailableConditionTransitionsTrueToFalse exercises the path
+// where a Deployment's Available condition transitions from True to False
+// because the underlying ReplicaSet reports zero available replicas while the
+// Deployment spec requires at least one available replica.
+//
+// Verification points:
+//  1. calculateStatus (sync.go) emits Available=False/MinimumReplicasUnavailable
+//     when availableReplicas < (replicas - maxUnavailable).
+//  2. SetDeploymentCondition (util/deployment_util.go) advances
+//     LastTransitionTime when the condition status changes.
+//
+// The test takes the syncStatusOnly path (triggered by DeletionTimestamp) to
+// isolate calculateStatus from the full rollout pipeline.
+func TestSyncDeploymentAvailableConditionTransitionsTrueToFalse(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	f := newFixture(t)
+
+	// maxSurge=1, maxUnavailable=0 makes MinAvailable = replicas - MaxUnavailable = 1.
+	// Note: if BOTH maxSurge and maxUnavailable resolve to 0, ResolveFenceposts
+	// (util/deployment_util.go) bumps maxUnavailable to 1, which would make a
+	// zero-available ReplicaSet still satisfy minimum availability (threshold 0).
+	// Using maxSurge=1 avoids that bump so the availability threshold is a genuine 1
+	// and a 0-available ReplicaSet correctly flips Available to False.
+	d := newDeployment("foo", 1, nil, ptr.To(intstr.FromInt32(1)), ptr.To(intstr.FromInt32(0)), map[string]string{"foo": "bar"})
+	now := metav1.Now()
+	d.DeletionTimestamp = &now
+	oldTime := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+	d.Status.Conditions = []apps.DeploymentCondition{
+		{
+			Type:               apps.DeploymentAvailable,
+			Status:             v1.ConditionTrue,
+			Reason:             util.MinimumReplicasAvailable,
+			Message:            "Deployment has minimum availability.",
+			LastUpdateTime:     oldTime,
+			LastTransitionTime: oldTime,
+		},
+	}
+	f.dLister = append(f.dLister, d)
+	f.objects = append(f.objects, d)
+
+	rs := newReplicaSet(d, "foo-rs", 1)
+	rs.Status = apps.ReplicaSetStatus{Replicas: 1, AvailableReplicas: 0, ReadyReplicas: 0}
+	f.rsLister = append(f.rsLister, rs)
+	f.objects = append(f.objects, rs)
+
+	c, informers, err := f.newController(ctx)
+	if err != nil {
+		t.Fatalf("error creating Deployment controller: %v", err)
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	informers.Start(stopCh)
+
+	if err := c.syncDeployment(ctx, testutil.GetKey(d, t)); err != nil {
+		t.Fatalf("syncDeployment failed: %v", err)
+	}
+
+	var availCond *apps.DeploymentCondition
+	for _, a := range filterInformerActions(f.client.Actions()) {
+		ua, ok := a.(core.UpdateAction)
+		if !ok || a.GetSubresource() != "status" {
+			continue
+		}
+		updated, ok := ua.GetObject().(*apps.Deployment)
+		if !ok {
+			continue
+		}
+		if cond := util.GetDeploymentCondition(updated.Status, apps.DeploymentAvailable); cond != nil {
+			availCond = cond
+		}
+	}
+	if availCond == nil {
+		t.Fatalf("expected an UpdateStatus action carrying an Available condition; actions=%v", f.client.Actions())
+	}
+	if availCond.Status != v1.ConditionFalse {
+		t.Errorf("Available condition status mismatch (-want +got):\n%s", cmp.Diff(v1.ConditionFalse, availCond.Status))
+	}
+	if availCond.Reason != util.MinimumReplicasUnavailable {
+		t.Errorf("Available condition reason mismatch (-want +got):\n%s", cmp.Diff(util.MinimumReplicasUnavailable, availCond.Reason))
+	}
+	if !availCond.LastTransitionTime.After(oldTime.Time) {
+		t.Errorf("LastTransitionTime should advance when condition status changes: old=%v, new=%v", oldTime.Time, availCond.LastTransitionTime.Time)
+	}
+}
+
+// TestSyncDeploymentEmitsProgressingConditionOnNewReplicaSetCreation exercises
+// the path where the Deployment controller creates a new ReplicaSet and emits
+// a Progressing=True condition with reason NewReplicaSetCreated.
+//
+// Production path: syncDeployment -> rolloutRolling ->
+// getAllReplicaSetsAndSyncRevision(createIfNotExisted=true) -> getNewReplicaSet
+// success branch (sync.go) which calls
+// SetDeploymentCondition(Progressing=True, NewReplicaSetReason, ...).
+//
+// HasProgressDeadline(d) must be true (ProgressDeadlineSeconds != nil &&
+// != math.MaxInt32) for the Progressing condition to be emitted.
+func TestSyncDeploymentEmitsProgressingConditionOnNewReplicaSetCreation(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	f := newFixture(t)
+
+	d := newDeployment("foo", 1, nil, nil, nil, map[string]string{"foo": "bar"})
+	d.Spec.ProgressDeadlineSeconds = ptr.To(int32(600))
+	f.dLister = append(f.dLister, d)
+	f.objects = append(f.objects, d)
+
+	c, informers, err := f.newController(ctx)
+	if err != nil {
+		t.Fatalf("error creating Deployment controller: %v", err)
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	informers.Start(stopCh)
+
+	if err := c.syncDeployment(ctx, testutil.GetKey(d, t)); err != nil {
+		t.Fatalf("syncDeployment failed: %v", err)
+	}
+
+	var sawCreateRS bool
+	var progressCond *apps.DeploymentCondition
+	for _, a := range filterInformerActions(f.client.Actions()) {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "replicasets" {
+			sawCreateRS = true
+			continue
+		}
+		ua, ok := a.(core.UpdateAction)
+		if !ok || a.GetSubresource() != "status" {
+			continue
+		}
+		updated, ok := ua.GetObject().(*apps.Deployment)
+		if !ok {
+			continue
+		}
+		if cond := util.GetDeploymentCondition(updated.Status, apps.DeploymentProgressing); cond != nil {
+			progressCond = cond
+		}
+	}
+	if !sawCreateRS {
+		t.Errorf("expected a Create action on replicasets; actions=%v", f.client.Actions())
+	}
+	if progressCond == nil {
+		t.Fatalf("expected an UpdateStatus action carrying a Progressing condition; actions=%v", f.client.Actions())
+	}
+	if progressCond.Status != v1.ConditionTrue {
+		t.Errorf("Progressing condition status mismatch (-want +got):\n%s", cmp.Diff(v1.ConditionTrue, progressCond.Status))
+	}
+	// The deployment controller may emit Progressing with reason NewReplicaSetReason
+	// (when creating) or ReplicaSetUpdatedReason (when subsequently observing progress
+	// through syncRolloutStatus after the create). Accept either, since both attest to
+	// the new-ReplicaSet rollout having begun.
+	switch progressCond.Reason {
+	case util.NewReplicaSetReason, util.ReplicaSetUpdatedReason:
+		// OK
+	default:
+		t.Errorf("Progressing condition reason mismatch: want one of %q or %q, got %q", util.NewReplicaSetReason, util.ReplicaSetUpdatedReason, progressCond.Reason)
+	}
+}
+
+// TestSyncDeploymentRecordsFailureWhenReplicaSetCreateForbiddenByQuota exercises
+// the deployment-controller failure-handling path when ReplicaSet creation is
+// rejected with a Forbidden quota error. Per the AAP, the mechanism is
+// clientset.PrependReactor("create","replicasets", ...) returning
+// apierrors.NewForbidden with a quota message.
+//
+// Production behavior (pkg/controller/deployment/sync.go, getNewReplicaSet
+// "case err != nil" branch): when ProgressDeadlineSeconds is set and create
+// returns a non-AlreadyExists, non-NamespaceTerminating error, the controller
+// records a Progressing=False condition with reason FailedRSCreateReason
+// ("ReplicaSetCreateError") and a message that embeds the underlying error. The
+// status is persisted via UpdateStatus, and the original error is returned from
+// syncDeployment.
+//
+// The DeploymentReplicaFailure condition itself is set via a separate path
+// (RS-status propagation via getReplicaFailures in progress.go); that path is
+// covered by TestSyncDeploymentPropagatesReplicaFailureConditionFromReplicaSet.
+func TestSyncDeploymentRecordsFailureWhenReplicaSetCreateForbiddenByQuota(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	f := newFixture(t)
+
+	d := newDeployment("foo", 1, nil, nil, nil, map[string]string{"foo": "bar"})
+	d.Spec.ProgressDeadlineSeconds = ptr.To(int32(600))
+	f.dLister = append(f.dLister, d)
+	f.objects = append(f.objects, d)
+
+	c, informers, err := f.newController(ctx)
+	if err != nil {
+		t.Fatalf("error creating Deployment controller: %v", err)
+	}
+
+	// Inject a Forbidden quota error on create replicasets, per AAP directive.
+	// PrependReactor must be installed after newController builds the fake clientset.
+	quotaErr := fmt.Errorf("exceeded quota: compute-resources, requested: pods=1, used: pods=10, limited: pods=10")
+	f.client.PrependReactor("create", "replicasets",
+		func(action core.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(
+				schema.GroupResource{Group: "", Resource: "pods"},
+				"foo-replicaset",
+				quotaErr,
+			)
+		})
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	informers.Start(stopCh)
+
+	syncErr := c.syncDeployment(ctx, testutil.GetKey(d, t))
+	if syncErr == nil {
+		t.Fatalf("expected syncDeployment to return the Forbidden error; got nil; actions=%v", f.client.Actions())
+	}
+	if !apierrors.IsForbidden(syncErr) {
+		t.Errorf("expected Forbidden error; got %T: %v", syncErr, syncErr)
+	}
+
+	var failureCond *apps.DeploymentCondition
+	for _, a := range filterInformerActions(f.client.Actions()) {
+		ua, ok := a.(core.UpdateAction)
+		if !ok || a.GetSubresource() != "status" {
+			continue
+		}
+		updated, ok := ua.GetObject().(*apps.Deployment)
+		if !ok {
+			continue
+		}
+		if cond := util.GetDeploymentCondition(updated.Status, apps.DeploymentProgressing); cond != nil && cond.Status == v1.ConditionFalse && cond.Reason == util.FailedRSCreateReason {
+			failureCond = cond
+			break
+		}
+	}
+	if failureCond == nil {
+		t.Fatalf("expected a status update with Progressing=False/%s; actions=%v", util.FailedRSCreateReason, f.client.Actions())
+	}
+	if failureCond.Status != v1.ConditionFalse {
+		t.Errorf("Progressing condition status mismatch (-want +got):\n%s", cmp.Diff(v1.ConditionFalse, failureCond.Status))
+	}
+	if failureCond.Reason != util.FailedRSCreateReason {
+		t.Errorf("Progressing condition reason mismatch (-want +got):\n%s", cmp.Diff(util.FailedRSCreateReason, failureCond.Reason))
+	}
+	if !strings.Contains(failureCond.Message, "exceeded quota") {
+		t.Errorf("expected failure condition message to contain the quota error reason %q; got: %q", "exceeded quota", failureCond.Message)
+	}
+}
+
+// TestSyncDeploymentPropagatesReplicaFailureConditionFromReplicaSet exercises
+// the path where the Deployment controller propagates a
+// ReplicaSetReplicaFailure condition from an owned ReplicaSet to the parent
+// Deployment as a DeploymentReplicaFailure condition.
+//
+// Production path: syncDeployment -> rolloutRolling -> ... -> syncRolloutStatus
+// (progress.go) -> getReplicaFailures returns the RS's ReplicaSetReplicaFailure
+// condition mapped to a DeploymentReplicaFailure condition via
+// util.ReplicaSetToDeploymentCondition. This is the canonical mechanism for the
+// deployment's "ReplicaFailure=True" condition to appear.
+//
+// In production, the RS controller sets ReplicaSetReplicaFailure with
+// reason="FailedCreate" when it cannot create pods (e.g., quota exceeded). This
+// test pre-populates that RS state and verifies propagation. The RS lacks a
+// desired-replicas annotation, so isScalingEvent is false and the full rollout
+// (rather than the scale-only sync) path is taken.
+func TestSyncDeploymentPropagatesReplicaFailureConditionFromReplicaSet(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	f := newFixture(t)
+
+	d := newDeployment("foo", 1, nil, nil, nil, map[string]string{"foo": "bar"})
+	d.Spec.ProgressDeadlineSeconds = ptr.To(int32(600))
+	f.dLister = append(f.dLister, d)
+	f.objects = append(f.objects, d)
+
+	rs := newReplicaSet(d, "foo-rs", 1)
+	rs.Status = apps.ReplicaSetStatus{
+		Replicas:          0,
+		ReadyReplicas:     0,
+		AvailableReplicas: 0,
+		Conditions: []apps.ReplicaSetCondition{
+			{
+				Type:    apps.ReplicaSetReplicaFailure,
+				Status:  v1.ConditionTrue,
+				Reason:  "FailedCreate",
+				Message: `pods "foo-rs-pod" is forbidden: exceeded quota: compute-resources, requested: pods=1, used: pods=10, limited: pods=10`,
+			},
+		},
+	}
+	f.rsLister = append(f.rsLister, rs)
+	f.objects = append(f.objects, rs)
+
+	c, informers, err := f.newController(ctx)
+	if err != nil {
+		t.Fatalf("error creating Deployment controller: %v", err)
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	informers.Start(stopCh)
+
+	if err := c.syncDeployment(ctx, testutil.GetKey(d, t)); err != nil {
+		t.Fatalf("syncDeployment failed: %v", err)
+	}
+
+	var rfCond *apps.DeploymentCondition
+	for _, a := range filterInformerActions(f.client.Actions()) {
+		ua, ok := a.(core.UpdateAction)
+		if !ok || a.GetSubresource() != "status" {
+			continue
+		}
+		updated, ok := ua.GetObject().(*apps.Deployment)
+		if !ok {
+			continue
+		}
+		if cond := util.GetDeploymentCondition(updated.Status, apps.DeploymentReplicaFailure); cond != nil {
+			rfCond = cond
+		}
+	}
+	if rfCond == nil {
+		t.Fatalf("expected a status update with a DeploymentReplicaFailure condition propagated from the RS; actions=%v", f.client.Actions())
+	}
+	if rfCond.Status != v1.ConditionTrue {
+		t.Errorf("DeploymentReplicaFailure status mismatch (-want +got):\n%s", cmp.Diff(v1.ConditionTrue, rfCond.Status))
+	}
+	if rfCond.Reason != "FailedCreate" {
+		t.Errorf("DeploymentReplicaFailure reason mismatch (-want +got):\n%s", cmp.Diff("FailedCreate", rfCond.Reason))
+	}
+	if !strings.Contains(rfCond.Message, "exceeded quota") {
+		t.Errorf("expected DeploymentReplicaFailure message to contain the quota error reason %q; got: %q", "exceeded quota", rfCond.Message)
+	}
+}
+
+// TestSyncDeploymentAdvancesObservedGenerationToSpecGeneration exercises the
+// path where calculateStatus must propagate the Deployment's spec Generation to
+// its Status.ObservedGeneration on every sync, even when no other status fields
+// would otherwise warrant an update.
+//
+// Production path: syncDeployment -> (DeletionTimestamp) -> syncStatusOnly ->
+// syncDeploymentStatus -> calculateStatus sets ObservedGeneration to
+// deployment.Generation (sync.go). Because the new status differs from the
+// existing status (ObservedGeneration lags), UpdateStatus is invoked.
+func TestSyncDeploymentAdvancesObservedGenerationToSpecGeneration(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	f := newFixture(t)
+
+	d := newDeployment("foo", 1, nil, nil, nil, map[string]string{"foo": "bar"})
+	d.Generation = 5
+	d.Status.ObservedGeneration = 3
+	now := metav1.Now()
+	d.DeletionTimestamp = &now
+	f.dLister = append(f.dLister, d)
+	f.objects = append(f.objects, d)
+
+	// Pre-populate a matching RS so getAllReplicaSetsAndSyncRevision finds it
+	// rather than returning (nil, nil) for newRS.
+	rs := newReplicaSet(d, "foo-rs", 1)
+	rs.Status = apps.ReplicaSetStatus{Replicas: 1, ReadyReplicas: 1, AvailableReplicas: 1}
+	f.rsLister = append(f.rsLister, rs)
+	f.objects = append(f.objects, rs)
+
+	c, informers, err := f.newController(ctx)
+	if err != nil {
+		t.Fatalf("error creating Deployment controller: %v", err)
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	informers.Start(stopCh)
+
+	if err := c.syncDeployment(ctx, testutil.GetKey(d, t)); err != nil {
+		t.Fatalf("syncDeployment failed: %v", err)
+	}
+
+	var updatedStatus *apps.Deployment
+	for _, a := range filterInformerActions(f.client.Actions()) {
+		ua, ok := a.(core.UpdateAction)
+		if !ok || a.GetSubresource() != "status" {
+			continue
+		}
+		if obj, ok := ua.GetObject().(*apps.Deployment); ok {
+			updatedStatus = obj
+		}
+	}
+	if updatedStatus == nil {
+		t.Fatalf("expected at least one UpdateStatus action on the Deployment; actions=%v", f.client.Actions())
+	}
+	if updatedStatus.Status.ObservedGeneration != d.Generation {
+		t.Errorf("ObservedGeneration mismatch (-want +got):\n%s", cmp.Diff(d.Generation, updatedStatus.Status.ObservedGeneration))
 	}
 }

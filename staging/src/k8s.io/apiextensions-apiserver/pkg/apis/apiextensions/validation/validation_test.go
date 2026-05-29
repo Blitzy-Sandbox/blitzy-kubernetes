@@ -8126,6 +8126,226 @@ func TestValidateCustomResourceDefinitionUpdate(t *testing.T) {
 			},
 			errors: []validationMatch{},
 		},
+		{
+			name: "ratcheting: unchanged version with over-budget rule is allowed on update",
+			old: &apiextensions.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "plural.group.com", ResourceVersion: "1"},
+				Spec: apiextensions.CustomResourceDefinitionSpec{
+					Group: "group.com",
+					Scope: apiextensions.ResourceScope("Cluster"),
+					Names: apiextensions.CustomResourceDefinitionNames{Plural: "plural", Singular: "singular", Kind: "Plural", ListKind: "PluralList"},
+					Versions: []apiextensions.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1",
+							Served:  true,
+							Storage: true,
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"f": {
+											Type: "array",
+											Items: &apiextensions.JSONSchemaPropsOrArray{
+												Schema: &apiextensions.JSONSchemaProps{
+													Type: "string",
+												},
+											},
+											XValidations: apiextensions.ValidationRules{
+												{
+													Rule:              "true",
+													MessageExpression: `self[0] + self[1] + self[2] + self[3] + self[4] + self[5] + self[6] + self[7]`,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							// second version differs from v1 so per-version schemas are not all identical
+							Name: "v2",
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"g": {
+											Type: "string",
+										},
+									},
+								},
+							},
+						},
+					},
+					PreserveUnknownFields: ptr.To(false),
+				},
+				Status: apiextensions.CustomResourceDefinitionStatus{StoredVersions: []string{"v1"}},
+			},
+			resource: &apiextensions.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "plural.group.com", ResourceVersion: "1"},
+				Spec: apiextensions.CustomResourceDefinitionSpec{
+					Group: "group.com",
+					Scope: apiextensions.ResourceScope("Cluster"),
+					Names: apiextensions.CustomResourceDefinitionNames{Plural: "plural", Singular: "singular", Kind: "Plural", ListKind: "PluralList"},
+					Versions: []apiextensions.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1", // unchanged — DeepEqual with old, so per-expression cost is ratcheted (suppressed)
+							Served:  true,
+							Storage: true,
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"f": {
+											Type: "array",
+											Items: &apiextensions.JSONSchemaPropsOrArray{
+												Schema: &apiextensions.JSONSchemaProps{
+													Type: "string",
+												},
+											},
+											XValidations: apiextensions.ValidationRules{
+												{
+													Rule:              "true",
+													MessageExpression: `self[0] + self[1] + self[2] + self[3] + self[4] + self[5] + self[6] + self[7]`,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							// unchanged — DeepEqual with old; kept distinct from v1 to avoid the
+							// "per-version schemas may not all be set to identical values" rule
+							Name: "v2",
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"g": {
+											Type: "string",
+										},
+									},
+								},
+							},
+						},
+					},
+					PreserveUnknownFields: ptr.To(false),
+				},
+				Status: apiextensions.CustomResourceDefinitionStatus{StoredVersions: []string{"v1"}},
+			},
+			errors: []validationMatch{},
+		},
+		{
+			name: "ratcheting: changed version with over-budget rule is forbidden on update",
+			old: &apiextensions.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "plural.group.com", ResourceVersion: "1"},
+				Spec: apiextensions.CustomResourceDefinitionSpec{
+					Group: "group.com",
+					Scope: apiextensions.ResourceScope("Cluster"),
+					Names: apiextensions.CustomResourceDefinitionNames{Plural: "plural", Singular: "singular", Kind: "Plural", ListKind: "PluralList"},
+					Versions: []apiextensions.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1",
+							Served:  true,
+							Storage: true,
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"f": {
+											Type: "array",
+											Items: &apiextensions.JSONSchemaPropsOrArray{
+												Schema: &apiextensions.JSONSchemaProps{
+													Type: "string",
+												},
+											},
+											XValidations: apiextensions.ValidationRules{
+												{
+													Rule:              "true",
+													MessageExpression: `self[0] + self[1] + self[2] + self[3] + self[4] + self[5] + self[6] + self[7]`,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							// second version differs from v1 so per-version schemas are not all identical
+							Name: "v2",
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"g": {
+											Type: "string",
+										},
+									},
+								},
+							},
+						},
+					},
+					PreserveUnknownFields: ptr.To(false),
+				},
+				Status: apiextensions.CustomResourceDefinitionStatus{StoredVersions: []string{"v1"}},
+			},
+			resource: &apiextensions.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "plural.group.com", ResourceVersion: "1"},
+				Spec: apiextensions.CustomResourceDefinitionSpec{
+					Group: "group.com",
+					Scope: apiextensions.ResourceScope("Cluster"),
+					Names: apiextensions.CustomResourceDefinitionNames{Plural: "plural", Singular: "singular", Kind: "Plural", ListKind: "PluralList"},
+					Versions: []apiextensions.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1", // changed — added "+ self[8]", so per-expression cost is enforced (not ratcheted)
+							Served:  true,
+							Storage: true,
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"f": {
+											Type: "array",
+											Items: &apiextensions.JSONSchemaPropsOrArray{
+												Schema: &apiextensions.JSONSchemaProps{
+													Type: "string",
+												},
+											},
+											XValidations: apiextensions.ValidationRules{
+												{
+													Rule:              "true",
+													MessageExpression: `self[0] + self[1] + self[2] + self[3] + self[4] + self[5] + self[6] + self[7] + self[8]`,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							// unchanged — DeepEqual with old; kept distinct from v1 to avoid the
+							// "per-version schemas may not all be set to identical values" rule
+							Name: "v2",
+							Schema: &apiextensions.CustomResourceValidation{
+								OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									Properties: map[string]apiextensions.JSONSchemaProps{
+										"g": {
+											Type: "string",
+										},
+									},
+								},
+							},
+						},
+					},
+					PreserveUnknownFields: ptr.To(false),
+				},
+				Status: apiextensions.CustomResourceDefinitionStatus{StoredVersions: []string{"v1"}},
+			},
+			errors: []validationMatch{
+				forbidden("spec", "versions[0]", "schema", "openAPIV3Schema", "properties[f]", "x-kubernetes-validations[0]", "messageExpression"),
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -11293,6 +11513,103 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
 			},
 			expectedErrors: []validationMatch{
 				invalid("spec.validation.openAPIV3Schema.properties[value].x-kubernetes-validations[0].optionalOldSelf"),
+			},
+		},
+		{
+			name: "x-kubernetes-validations: empty rule on a nested property is rejected",
+			opts: validationOptions{requireStructuralSchema: true},
+			input: apiextensions.CustomResourceValidation{
+				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+					Type: "object",
+					Properties: map[string]apiextensions.JSONSchemaProps{
+						"nested": {
+							Type: "string",
+							XValidations: apiextensions.ValidationRules{
+								{Message: "empty rule on nested property"},
+							},
+						},
+					},
+				},
+			},
+			expectedErrors: []validationMatch{
+				required("spec.validation.openAPIV3Schema.properties[nested].x-kubernetes-validations[0].rule"),
+			},
+		},
+		{
+			name: "x-kubernetes-validations: rule under per-expression cost budget is accepted",
+			opts: validationOptions{requireStructuralSchema: true},
+			input: apiextensions.CustomResourceValidation{
+				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+					Type: "object",
+					Properties: map[string]apiextensions.JSONSchemaProps{
+						"boundedString": {
+							Type:      "string",
+							MaxLength: ptr.To[int64](100),
+							XValidations: apiextensions.ValidationRules{
+								{Rule: "self.startsWith('ok')"},
+							},
+						},
+					},
+				},
+			},
+			expectedErrors: []validationMatch{},
+		},
+		{
+			name: "x-kubernetes-validations: rule above per-expression cost budget is rejected",
+			opts: validationOptions{requireStructuralSchema: true},
+			input: apiextensions.CustomResourceValidation{
+				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+					Type: "object",
+					Properties: map[string]apiextensions.JSONSchemaProps{
+						"unboundedMap": {
+							Type: "array",
+							Items: &apiextensions.JSONSchemaPropsOrArray{
+								Schema: &apiextensions.JSONSchemaProps{
+									Type: "object",
+									AdditionalProperties: &apiextensions.JSONSchemaPropsOrBool{
+										Schema: &apiextensions.JSONSchemaProps{
+											Type:     "object",
+											Required: []string{"k"},
+											Properties: map[string]apiextensions.JSONSchemaProps{
+												"k": {Type: "string"},
+											},
+										},
+									},
+								},
+							},
+							XValidations: apiextensions.ValidationRules{
+								{Rule: "self.all(x, x.all(y, x[y].k == x[y].k))"},
+							},
+						},
+					},
+				},
+			},
+			expectedErrors: []validationMatch{
+				// exceeds per-rule limit and contributes to total limit being exceeded (1 error for each)
+				forbidden("spec.validation.openAPIV3Schema.properties[unboundedMap].x-kubernetes-validations[0].rule"),
+				forbidden("spec.validation.openAPIV3Schema.properties[unboundedMap].x-kubernetes-validations[0].rule"),
+				// total limit is exceeded
+				forbidden("spec.validation.openAPIV3Schema"),
+			},
+		},
+		{
+			name: "x-kubernetes-validations: rule with self-referential undeclared field is rejected",
+			opts: validationOptions{requireStructuralSchema: true},
+			input: apiextensions.CustomResourceValidation{
+				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
+					Type: "object",
+					Properties: map[string]apiextensions.JSONSchemaProps{
+						"recursive": {
+							Type: "string",
+							XValidations: apiextensions.ValidationRules{
+								{Rule: "self == self.recursive.recursive"},
+							},
+						},
+					},
+				},
+			},
+			expectedErrors: []validationMatch{
+				invalid("spec.validation.openAPIV3Schema.properties[recursive].x-kubernetes-validations[0].rule"),
 			},
 		},
 	}

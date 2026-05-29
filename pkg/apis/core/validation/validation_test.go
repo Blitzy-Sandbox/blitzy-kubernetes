@@ -30476,3 +30476,186 @@ func TestValidateWorkloadReference(t *testing.T) {
 		}
 	}
 }
+
+// TestValidationBoundaryValues exercises boundary-value rows for ValidatePodCreate,
+// ValidateServiceCreate, and ValidateNamespace per the testing plan. Each subtest
+// constructs its own fresh fixture (no shared mutable state) and uses the
+// existing helpers (podtest.MakePod, podtest.MakeContainer, makeValidService) so
+// that the conventions of the surrounding tests are preserved. New rows are
+// intentionally additive: every existing test in this file remains unchanged.
+func TestValidationBoundaryValues(t *testing.T) {
+	// --- ValidatePodCreate boundary tests --------------------------------
+
+	// AAP row 1: zero CPU request value is valid (ValidateNonnegativeQuantity
+	// accepts a zero quantity).
+	t.Run("ValidatePodCreate/zero CPU request is valid", func(t *testing.T) {
+		pod := podtest.MakePod("valid-pod",
+			podtest.SetContainers(podtest.MakeContainer("ctr",
+				podtest.SetContainerResources(core.ResourceRequirements{
+					Requests: core.ResourceList{
+						core.ResourceCPU: resource.MustParse("0"),
+					},
+				}),
+			)),
+		)
+		if errs := ValidatePodCreate(pod, PodValidationOptions{}); len(errs) != 0 {
+			t.Errorf("expected success for zero CPU request, got errors: %v", errs)
+		}
+	})
+
+	// AAP row 2: zero memory request value is valid.
+	t.Run("ValidatePodCreate/zero memory request is valid", func(t *testing.T) {
+		pod := podtest.MakePod("valid-pod",
+			podtest.SetContainers(podtest.MakeContainer("ctr",
+				podtest.SetContainerResources(core.ResourceRequirements{
+					Requests: core.ResourceList{
+						core.ResourceMemory: resource.MustParse("0"),
+					},
+				}),
+			)),
+		)
+		if errs := ValidatePodCreate(pod, PodValidationOptions{}); len(errs) != 0 {
+			t.Errorf("expected success for zero memory request, got errors: %v", errs)
+		}
+	})
+
+	// AAP row 3: container name with exactly 63 chars (the DNS-1123 label max)
+	// is valid.
+	t.Run("ValidatePodCreate/max-length container name 63 chars is valid", func(t *testing.T) {
+		name := strings.Repeat("a", 63)
+		pod := podtest.MakePod("valid-pod",
+			podtest.SetContainers(podtest.MakeContainer(name)),
+		)
+		if errs := ValidatePodCreate(pod, PodValidationOptions{}); len(errs) != 0 {
+			t.Errorf("expected success for 63-char container name, got errors: %v", errs)
+		}
+	})
+
+	// AAP row 4: container name with 64 chars exceeds the DNS-1123 label max
+	// and must be rejected with Invalid on containers[0].name.
+	t.Run("ValidatePodCreate/container name 64 chars exceeds DNS-1123 label", func(t *testing.T) {
+		name := strings.Repeat("a", 64)
+		pod := podtest.MakePod("valid-pod",
+			podtest.SetContainers(podtest.MakeContainer(name)),
+		)
+		errs := ValidatePodCreate(pod, PodValidationOptions{})
+		if len(errs) == 0 {
+			t.Fatalf("expected failure for 64-char container name")
+		}
+		found := false
+		for _, e := range errs {
+			if e.Type == field.ErrorTypeInvalid && strings.Contains(e.Field, "containers[0].name") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an Invalid error on containers[0].name, got: %v", errs)
+		}
+	})
+
+	// --- ValidateServiceCreate boundary tests ----------------------------
+
+	// AAP row 5: a Service name containing uppercase letters violates both
+	// DNS-1035 and DNS-1123 label rules and must be rejected, regardless of
+	// the RelaxedServiceNameValidation feature gate.
+	t.Run("ValidateServiceCreate/uppercase name is invalid", func(t *testing.T) {
+		svc := makeValidService()
+		svc.Name = "InvalidName"
+		errs := ValidateServiceCreate(&svc)
+		if len(errs) == 0 {
+			t.Fatalf("expected failure for uppercase service name")
+		}
+		found := false
+		for _, e := range errs {
+			if e.Type == field.ErrorTypeInvalid && strings.Contains(e.Field, "metadata.name") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an Invalid error on metadata.name, got: %v", errs)
+		}
+	})
+
+	// AAP row 6: a Service name that starts with a digit violates DNS-1035
+	// (which requires a leading lowercase letter). The RelaxedServiceNameValidation
+	// feature gate flips behavior, so explicitly disable it to keep this test
+	// deterministic regardless of the gate's lifecycle stage.
+	t.Run("ValidateServiceCreate/name starting with digit is invalid", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.RelaxedServiceNameValidation, false)
+		svc := makeValidService()
+		svc.Name = "1invalid"
+		errs := ValidateServiceCreate(&svc)
+		if len(errs) == 0 {
+			t.Fatalf("expected failure for service name starting with digit")
+		}
+		found := false
+		for _, e := range errs {
+			if e.Type == field.ErrorTypeInvalid && strings.Contains(e.Field, "metadata.name") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an Invalid error on metadata.name, got: %v", errs)
+		}
+	})
+
+	// --- ValidateNamespace boundary tests --------------------------------
+
+	// AAP row 7: a Namespace name with exactly 63 chars is the DNS-1123 label
+	// maximum and is valid.
+	t.Run("ValidateNamespace/max-length name 63 chars is valid", func(t *testing.T) {
+		ns := core.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 63)},
+		}
+		if errs := ValidateNamespace(&ns); len(errs) != 0 {
+			t.Errorf("expected success for 63-char namespace name, got errors: %v", errs)
+		}
+	})
+
+	// AAP row 8: a Namespace name containing uppercase letters violates
+	// DNS-1123 label rules.
+	t.Run("ValidateNamespace/uppercase name is invalid", func(t *testing.T) {
+		ns := core.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "INVALID-NS"},
+		}
+		errs := ValidateNamespace(&ns)
+		if len(errs) == 0 {
+			t.Fatalf("expected failure for uppercase namespace name")
+		}
+		found := false
+		for _, e := range errs {
+			if e.Type == field.ErrorTypeInvalid && strings.Contains(e.Field, "metadata.name") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an Invalid error on metadata.name, got: %v", errs)
+		}
+	})
+
+	// AAP row 9: a Namespace name containing an underscore is rejected by
+	// DNS-1123 label rules (underscores are not in the allowed character set).
+	t.Run("ValidateNamespace/underscore name is invalid", func(t *testing.T) {
+		ns := core.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "invalid_ns"},
+		}
+		errs := ValidateNamespace(&ns)
+		if len(errs) == 0 {
+			t.Fatalf("expected failure for namespace name with underscore")
+		}
+		found := false
+		for _, e := range errs {
+			if e.Type == field.ErrorTypeInvalid && strings.Contains(e.Field, "metadata.name") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an Invalid error on metadata.name, got: %v", errs)
+		}
+	})
+}
