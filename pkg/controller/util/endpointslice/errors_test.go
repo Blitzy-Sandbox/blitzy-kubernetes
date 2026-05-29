@@ -132,7 +132,7 @@ func TestIsStaleInformerCacheErr(t *testing.T) {
 	t.Run("errors_As_does_unwrap_wrapped_error", func(t *testing.T) {
 		wrapped := fmt.Errorf("outer: %w", inner)
 		var target *StaleInformerCache
-		assert.True(t, errors.As(wrapped, &target), "errors.As must successfully unwrap to *StaleInformerCache")
+		assert.ErrorAs(t, wrapped, &target, "errors.As must successfully unwrap to *StaleInformerCache")
 		require.NotNil(t, target)
 		assert.Equal(t, "inner", target.Error())
 	})

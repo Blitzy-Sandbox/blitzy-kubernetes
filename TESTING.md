@@ -1,5 +1,5 @@
 <!--
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -76,7 +76,12 @@ they are summarized only briefly in [Section 10](#10-other-test-tiers-brief).
 ## 3. Quick Start
 
 ```bash
-# Run all unit tests (everything, slow):
+# Run all unit tests (everything, slow). NOTE: a bare, repo-wide `make test`
+# builds and runs every unit package. In constrained or non-CI environments a
+# small number of UNRELATED packages may fail because they rely on additional
+# environment assumptions (see "4.1.1 Running the full unit suite" below). For
+# deterministic, reproducible validation, scope the run with WHAT=... as shown
+# in the examples that follow.
 make test
 
 # Run unit tests for a single package:
@@ -108,6 +113,28 @@ make update
 `make test` (and its alias `make check`) delegates to
 `hack/make-rules/test.sh $(WHAT) $(TESTS)`. The two targets are identical—`check`
 and `test` share a single rule in `build/root/Makefile`.
+
+#### 4.1.1 Running the full unit suite
+
+A bare `make test` with no `WHAT` discovers and runs **every** unit-test package
+in the workspace via `kube::test::find_go_packages`. This is the most thorough
+run, but it is **not guaranteed to exit 0 in every environment**: a small number
+of packages outside the scope of this guide (for example, certain
+`k8s.io/apiserver/...` server/webhook/authorizer options packages,
+`k8s.io/cloud-provider/...` and `cmd/kube-controller-manager/...` options
+packages, and `plugin/pkg/admission/...` packages) assume additional
+environment provisioning and may fail on a developer workstation or in a
+constrained container even when the source tree is correct. These failures are
+**unrelated** to the controller, validation, and utility packages documented
+here, and CI exercises the full suite inside a fully provisioned environment.
+
+For **deterministic, reproducible** validation on a workstation, always scope
+the run with `WHAT=...` (the package-scoped commands shown throughout this
+document are verified to pass). For example:
+
+```bash
+make test WHAT="./pkg/controller/util/node/... ./pkg/controller/util/endpointslice/... ./pkg/controller/namespace/... ./pkg/controller/replication/..."
+```
 
 ### 4.2 Arguments
 
@@ -374,7 +401,11 @@ err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, t
   `namespace_controller.go`).
 - **Package declaration**: match the production package (avoid the `_test`
   external-test variant unless it is strictly required).
-- **License header**: Apache 2.0 with the current year.
+- **License header**: the standard Apache 2.0 Kubernetes boilerplate, matching
+  `hack/boilerplate/boilerplate.go.txt`. New files use `Copyright The Kubernetes
+  Authors.` with **no year** — the boilerplate verifier (`hack/verify-boilerplate.sh`)
+  no longer accepts a year in newly added files. Do not add a year unless the
+  upstream template itself changes.
 - **Imports**: group `stdlib`, then external (`github.com/...`), then `k8s.io/...`,
   with a blank line between groups. Add `_ "k8s.io/kubernetes/pkg/apis/core/install"`
   if you need to decode typed core API objects.
@@ -569,7 +600,7 @@ For full details on these tiers, see the
 
 Before merging a new `*_test.go`, confirm:
 
-- [ ] License header (Apache 2.0) is present with the current year.
+- [ ] License header (Apache 2.0) matches `hack/boilerplate/boilerplate.go.txt` (no year).
 - [ ] The `package` declaration matches the production package.
 - [ ] Imports are grouped (stdlib, external, `k8s.io`) with blank lines between groups.
 - [ ] The test is table-driven where multiple cases apply; each row has a unique `name`.
